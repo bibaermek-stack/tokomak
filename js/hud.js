@@ -24,6 +24,8 @@
     axis:   'rgba(120,200,240,0.35)'
   };
   const FONT = 'ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace';
+  /* plot-box top offset for panels that draw a legend under the title */
+  const LEG = 30;
 
   /* =============================================================== format */
   function fmt(v, d) {
@@ -128,7 +130,7 @@
   /* ================================================================ chart */
   /* Reusable drawing primitives shared by every panel. */
   const G = {
-    frame(x, ctx, w, h, title, unit) {
+    frame(ctx, w, h, title, unit) {
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = 'rgba(3,9,17,0.62)';
       ctx.fillRect(0, 0, w, h);
@@ -157,9 +159,11 @@
       }
     },
 
-    /* plot box helper: returns the inner rectangle */
+    /* Plot box helper.  Panels that carry a legend pass LEGEND_TOP so the
+       legend sits clear of the title instead of overprinting it.          */
     box(w, h, top) {
-      return { x: 30, y: top == null ? 19 : top, w: w - 38, h: h - (top == null ? 19 : top) - 13 };
+      const t = top == null ? 19 : top;
+      return { x: 30, y: t, w: w - 38, h: h - t - 13 };
     },
 
     grid(ctx, b, nx, ny, yMin, yMax, yFmt, log) {
@@ -357,9 +361,9 @@
 
     /* ---------------------------------------------------------- LEFT ---- */
     {
-      id: 'temp', title: 'Plasma Temperature vs Time', unit: 'keV', slot: 'left', h: 96,
+      id: 'temp', title: 'Плазма температурасы', unit: 'кэВ', slot: 'left', h: 106,
       draw(ctx, w, h, P, H) {
-        const b = G.box(w, h);
+        const b = G.box(w, h, LEG);
         const mx = Math.max(H.max('Ti', 900), 5) * 1.18;
         G.grid(ctx, b, 6, 4, 0, mx, v => v.toFixed(0));
         G.series(ctx, b, H, 'Te', 900, 0, mx, C.cyan, { fill: 'rgba(63,224,255,0.13)' });
@@ -369,9 +373,9 @@
       }
     },
     {
-      id: 'dens', title: 'Plasma Density vs Time', unit: '10²⁰ m⁻³', slot: 'left', h: 92,
+      id: 'dens', title: 'Плазма тығыздығы', unit: '10²⁰ м⁻³', slot: 'left', h: 102,
       draw(ctx, w, h, P, H) {
-        const b = G.box(w, h);
+        const b = G.box(w, h, LEG);
         const mx = Math.max(H.max('nG', 900), H.max('ne', 900)) * 1.2 || 1;
         G.grid(ctx, b, 6, 4, 0, mx, v => v.toFixed(1));
         /* Greenwald limit */
@@ -387,9 +391,9 @@
       }
     },
     {
-      id: 'pfus', title: 'Fusion Power Output', unit: 'MW', slot: 'left', h: 104,
+      id: 'pfus', title: 'Синтез қуаты', unit: 'МВт', slot: 'left', h: 114,
       draw(ctx, w, h, P, H) {
-        const b = G.box(w, h);
+        const b = G.box(w, h, LEG);
         const mx = Math.max(H.max('Pfus', 900) * 1.2, 20);
         G.grid(ctx, b, 6, 4, 0, mx, v => v.toFixed(0));
         G.series(ctx, b, H, 'Pfus', 900, 0, mx, C.mag,
@@ -397,27 +401,27 @@
         G.series(ctx, b, H, 'Palpha', 900, 0, mx, C.amber, { width: 1, glow: false });
         G.series(ctx, b, H, 'Paux', 900, 0, mx, C.cyan, { width: 1, glow: false });
         G.legend(ctx, { x: b.x, y: b.y - 12 }, [
-          { c: C.mag, t: 'P_fus' }, { c: C.amber, t: 'P_α' }, { c: C.cyan, t: 'P_aux' }]);
-        G.value(ctx, w - 8, h - 16, P.Pfus.toFixed(1) + ' MW', C.mag, 16);
+          { c: C.mag, t: 'P_син' }, { c: C.amber, t: 'P_α' }, { c: C.cyan, t: 'P_қыз' }]);
+        G.value(ctx, w - 8, h - 16, P.Pfus.toFixed(1) + ' МВт', C.mag, 16);
         G.value(ctx, w - 8, h - 4, 'Q = ' + (P.Q > 900 ? '∞' : P.Q.toFixed(2)),
           P.Q >= 10 ? C.green : C.white, 10);
       }
     },
     {
-      id: 'neutron', title: 'Neutron Flux — 14.1 MeV', unit: 'n·s⁻¹', slot: 'left', h: 88,
+      id: 'neutron', title: 'Нейтрон ағыны — 14.1 МэВ', unit: 'н·с⁻¹', slot: 'left', h: 88,
       draw(ctx, w, h, P, H) {
         const b = G.box(w, h);
         const lo = 12, hi = 21;
         G.grid(ctx, b, 6, 3, lo, hi, v => '1e' + Math.round(Math.log10(v)), true);
         G.series(ctx, b, H, 'neutron', 900, lo, hi, C.green,
           { log: true, fill: 'rgba(77,255,176,0.13)' });
-        G.value(ctx, w - 8, h - 4, expo(P.neutronRate, 2) + ' n/s', C.green, 10);
+        G.value(ctx, w - 8, h - 4, expo(P.neutronRate, 2) + ' н/с', C.green, 10);
       }
     },
     {
-      id: 'tau', title: 'Energy Confinement Time', unit: 's', slot: 'left', h: 88,
+      id: 'tau', title: 'Энергияны ұстау уақыты', unit: 'с', slot: 'left', h: 98,
       draw(ctx, w, h, P, H) {
-        const b = G.box(w, h);
+        const b = G.box(w, h, LEG);
         const mx = Math.max(H.max('tauE', 900), H.max('tauE98', 900)) * 1.25 || 1;
         G.grid(ctx, b, 6, 3, 0, mx, v => v.toFixed(1));
         G.series(ctx, b, H, 'tauE98', 900, 0, mx, 'rgba(91,140,255,0.75)',
@@ -425,27 +429,27 @@
         G.series(ctx, b, H, 'tauE', 900, 0, mx, C.cyan, { fill: 'rgba(63,224,255,0.12)' });
         G.legend(ctx, { x: b.x, y: b.y - 12 }, [
           { c: C.cyan, t: 'τE' }, { c: C.blue, t: 'IPB98(y,2)' }]);
-        G.value(ctx, w - 8, h - 4, 'τE ' + P.tauE.toFixed(2) + 's   H98 ' + P.H98.toFixed(2),
+        G.value(ctx, w - 8, h - 4, 'τE ' + P.tauE.toFixed(2) + 'с   H98 ' + P.H98.toFixed(2),
           C.white, 9);
       }
     },
     {
-      id: 'rad', title: 'Radiation Losses', unit: 'MW', slot: 'left', h: 92,
+      id: 'rad', title: 'Сәулелену шығындары', unit: 'МВт', slot: 'left', h: 102,
       draw(ctx, w, h, P, H) {
-        const b = G.box(w, h);
+        const b = G.box(w, h, LEG);
         const mx = Math.max(H.max('Prad', 900) * 1.25, 10);
         G.grid(ctx, b, 6, 3, 0, mx, v => v.toFixed(0));
         G.series(ctx, b, H, 'Prad', 900, 0, mx, C.red, { fill: 'rgba(255,77,106,0.16)' });
         G.series(ctx, b, H, 'Pbrem', 900, 0, mx, C.amber, { width: 1, glow: false });
         G.series(ctx, b, H, 'Psync', 900, 0, mx, C.blue, { width: 1, glow: false });
         G.legend(ctx, { x: b.x, y: b.y - 12 }, [
-          { c: C.red, t: 'total' }, { c: C.amber, t: 'brems' }, { c: C.blue, t: 'sync' }]);
-        G.value(ctx, w - 8, h - 4, P.Prad.toFixed(1) + ' MW  f_rad ' +
+          { c: C.red, t: 'жалпы' }, { c: C.amber, t: 'тежеу' }, { c: C.blue, t: 'синхр' }]);
+        G.value(ctx, w - 8, h - 4, P.Prad.toFixed(1) + ' МВт  f_сәуле ' +
           (P.Prad / Math.max(P.Paux + P.Pohm + P.Palpha, 0.1)).toFixed(2), C.white, 9);
       }
     },
     {
-      id: 'xsec', title: 'Plasma Cross-Section — Poloidal Flux', unit: 'ψ', slot: 'left', h: 176,
+      id: 'xsec', title: 'Плазманың көлденең қимасы', unit: 'ψ', slot: 'left', h: 176,
       draw(ctx, w, h, P) {
         ctx.save();
         const cx = w * 0.5, cy = h * 0.52 + 6;
@@ -519,28 +523,28 @@
         ctx.fillText('q95=' + P.q95.toFixed(2) + '  q0=' + P.q0.toFixed(2), 8, h - 13);
         ctx.textAlign = 'right';
         ctx.fillStyle = P.hMode ? C.mag : 'rgba(150,210,235,0.8)';
-        ctx.fillText(P.hMode ? 'H-MODE PEDESTAL' : 'L-MODE', w - 8, h - 13);
+        ctx.fillText(P.hMode ? 'H-РЕЖИМ ПЬЕДЕСТАЛЫ' : 'L-РЕЖИМ', w - 8, h - 13);
         ctx.restore();
       }
     },
 
     /* --------------------------------------------------------- RIGHT ---- */
     {
-      id: 'gauges', title: 'Primary Machine Parameters', unit: '', slot: 'right', h: 128,
+      id: 'gauges', title: 'Негізгі параметрлер', unit: '', slot: 'right', h: 128,
       draw(ctx, w, h, P) {
         const R = Math.min(w / 4.9, 30);
         const y = h * 0.44;
         const xs = [w * 0.145, w * 0.383, w * 0.62, w * 0.857];
-        G.gauge(ctx, xs[0], y, R, P.Bt, 0, 6, 'TOROIDAL FIELD', 'T', C.cyan);
-        G.gauge(ctx, xs[1], y, R, P.Ip, 0, 17, 'PLASMA CURRENT', 'MA', C.violet, 16);
-        G.gauge(ctx, xs[2], y, R, Math.min(P.Q, 25), 0, 25, 'FUSION GAIN', 'Q', C.mag);
-        G.gauge(ctx, xs[3], y, R, P.betaN, 0, 5, 'NORMALISED BETA', 'βN', C.amber, 4.0);
+        G.gauge(ctx, xs[0], y, R, P.Bt, 0, 6, 'ТОРОИД ӨРІСІ', 'Тл', C.cyan);
+        G.gauge(ctx, xs[1], y, R, P.Ip, 0, 17, 'ПЛАЗМА ТОГЫ', 'МА', C.violet, 16);
+        G.gauge(ctx, xs[2], y, R, Math.min(P.Q, 25), 0, 25, 'ЭНЕРГИЯ ҰТЫСЫ', 'Q', C.mag);
+        G.gauge(ctx, xs[3], y, R, P.betaN, 0, 5, 'НОРМАЛАНҒАН БЕТА', 'βN', C.amber, 4.0);
       }
     },
     {
-      id: 'scope', title: 'Oscilloscope — MHD & Dα', unit: 'a.u.', slot: 'right', h: 108,
+      id: 'scope', title: 'Осциллограф — МГД және Dα', unit: 'шарт.бір.', slot: 'right', h: 118,
       draw(ctx, w, h, P, H, t) {
-        const b = G.box(w, h);
+        const b = G.box(w, h, LEG);
         /* phosphor grid */
         ctx.strokeStyle = 'rgba(80,255,180,0.09)'; ctx.lineWidth = 1;
         ctx.beginPath();
@@ -581,21 +585,21 @@
         /* D-alpha trace */
         G.series(ctx, b, H, 'dAlpha', 170, 0, 5, C.mag, { width: 1.2 });
         G.legend(ctx, { x: b.x, y: b.y - 12 }, [
-          { c: '#5dffa0', t: 'Mirnov dB/dt' }, { c: C.mag, t: 'Dα' }]);
+          { c: '#5dffa0', t: 'Мирнов dB/dt' }, { c: C.mag, t: 'Dα' }]);
         ctx.font = '7px ' + FONT; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
         ctx.fillStyle = 'rgba(150,210,235,0.7)';
-        ctx.fillText('2 ms/div   ELM #' + P.elmCount + '  ST #' + P.sawCount, w - 8, h - 3);
+        ctx.fillText('2 мс/бөл   ELM №' + P.elmCount + '  АРА №' + P.sawCount, w - 8, h - 3);
       }
     },
     {
-      id: 'coils', title: 'Superconducting Coil Currents', unit: 'kA', slot: 'right', h: 112,
+      id: 'coils', title: 'Асқын өткізгіш катушка тогы', unit: 'кА', slot: 'right', h: 112,
       draw(ctx, w, h, P) {
         const pad = 8;
         const bw = (w - pad * 2) / P.M.nTF;
         const top = 24, bh = 40;
         ctx.font = '7px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
         ctx.fillStyle = 'rgba(130,185,215,0.7)';
-        ctx.fillText('TF 1–18  (Nb₃Sn @ 4.5 K)', pad, top - 10);
+        ctx.fillText('TF 1–18  (Nb₃Sn, 4.5 K)', pad, top - 10);
         for (let i = 0; i < P.M.nTF; i++) {
           const v = P.coilI[i] / 72;
           const x = pad + i * bw;
@@ -609,7 +613,7 @@
         /* PF coils, bipolar */
         const top2 = top + bh + 18, bh2 = 30;
         ctx.fillStyle = 'rgba(130,185,215,0.7)';
-        ctx.fillText('PF 1–6  (NbTi, bipolar)', pad, top2 - 10);
+        ctx.fillText('PF 1–6  (NbTi, биполяр)', pad, top2 - 10);
         const bw2 = (w - pad * 2) / P.M.nPF;
         const mid = top2 + bh2 / 2;
         ctx.strokeStyle = 'rgba(120,200,240,0.25)';
@@ -627,25 +631,25 @@
         }
         ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
         ctx.font = '7px ' + FONT; ctx.fillStyle = 'rgba(150,210,235,0.75)';
-        ctx.fillText('TF stored energy 41 GJ   quench detect: ARMED', w - pad, h - 3);
+        ctx.fillText('TF энергиясы 41 ГДж   квенч-бақылау: ДАЙЫН', w - pad, h - 3);
       }
     },
     {
-      id: 'power', title: 'Power Balance Diagram', unit: 'MW', slot: 'right', h: 122,
+      id: 'power', title: 'Қуат балансы', unit: 'МВт', slot: 'right', h: 122,
       draw(ctx, w, h, P) {
         const pad = 10, top = 24;
         const inputs = [
           { l: 'NBI', v: P.Pnbi, c: C.cyan },
           { l: 'ICRH', v: P.Picr, c: C.blue },
           { l: 'ECRH', v: P.Pecr, c: C.violet },
-          { l: 'OHMIC', v: P.Pohm, c: C.amber },
-          { l: 'ALPHA', v: P.Palpha, c: C.mag }
+          { l: 'ОМДЫҚ', v: P.Pohm, c: C.amber },
+          { l: 'АЛЬФА', v: P.Palpha, c: C.mag }
         ];
         const outputs = [
-          { l: 'TRANSPORT', v: Math.max(P.W / P.tauE, 0), c: C.green },
-          { l: 'BREMS', v: P.Pbrem, c: C.amber },
-          { l: 'LINE RAD', v: P.Pline, c: C.red },
-          { l: 'SYNCHROTRON', v: P.Psync, c: C.blue }
+          { l: 'ТАСЫМАЛ', v: Math.max(P.W / P.tauE, 0), c: C.green },
+          { l: 'ТЕЖЕУ', v: P.Pbrem, c: C.amber },
+          { l: 'СЫЗЫҚТЫҚ', v: P.Pline, c: C.red },
+          { l: 'СИНХРОТРОН', v: P.Psync, c: C.blue }
         ];
         const tin = inputs.reduce((a, x) => a + x.v, 0);
         const tout = outputs.reduce((a, x) => a + x.v, 0);
@@ -670,22 +674,22 @@
         };
         ctx.fillStyle = 'rgba(120,225,255,0.85)';
         ctx.textAlign = 'left';
-        ctx.fillText('HEATING  Σ ' + tin.toFixed(1) + ' MW', pad, top - 6);
+        ctx.fillText('ҚЫЗДЫРУ  Σ ' + tin.toFixed(1) + ' МВт', pad, top - 6);
         row(inputs, top);
         const y2 = top + inputs.length * 12 + 12;
         ctx.fillStyle = 'rgba(120,225,255,0.85)';
-        ctx.fillText('LOSSES  Σ ' + tout.toFixed(1) + ' MW', pad, y2 - 6);
+        ctx.fillText('ШЫҒЫНДАР  Σ ' + tout.toFixed(1) + ' МВт', pad, y2 - 6);
         row(outputs, y2);
 
         const net = P.Pfus * 0.33 - P.Paux / 0.4;
         ctx.textAlign = 'right'; ctx.font = '700 9px ' + FONT;
         ctx.fillStyle = net > 0 ? C.green : C.red;
-        ctx.fillText('NET ELECTRIC ' + (net >= 0 ? '+' : '') + net.toFixed(1) + ' MWe',
+        ctx.fillText('ТАЗА ЭЛЕКТР ' + (net >= 0 ? '+' : '') + net.toFixed(1) + ' МВт',
           w - pad, h - 8);
       }
     },
     {
-      id: 'heatflux', title: 'Divertor Heat Flux Distribution', unit: 'MW·m⁻²', slot: 'right', h: 104,
+      id: 'heatflux', title: 'Дивертордағы жылу ағыны', unit: 'МВт·м⁻²', slot: 'right', h: 104,
       draw(ctx, w, h, P, H, t) {
         const b = { x: 30, y: 24, w: w - 46, h: h - 42 };
         const NX = 44, NY = 20;
@@ -718,19 +722,19 @@
         ctx.textAlign = 'left'; ctx.textBaseline = 'top';
         ctx.fillText('0', b.x, h - 8);
         ctx.textAlign = 'right';
-        ctx.fillText('22 MW/m²', b.x + b.w, h - 8);
+        ctx.fillText('22 МВт/м²', b.x + b.w, h - 8);
         ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
         ctx.fillStyle = 'rgba(140,195,220,0.8)';
-        ctx.fillText('OUT', b.x - 4, b.y + b.h * 0.42);
-        ctx.fillText('IN', b.x - 4, b.y + b.h * 0.88);
-        G.value(ctx, w - 8, 18, 'peak ' + (q0 * 1.45).toFixed(1),
+        ctx.fillText('СЫРТ', b.x - 4, b.y + b.h * 0.42);
+        ctx.fillText('ІШ', b.x - 4, b.y + b.h * 0.88);
+        G.value(ctx, w - 8, 18, 'макс ' + (q0 * 1.45).toFixed(1),
           q0 * 1.45 > 10 ? C.red : C.white, 9);
       }
     },
     {
-      id: 'flux', title: 'Magnetic Flux & Loop Voltage', unit: 'Wb / V', slot: 'right', h: 90,
+      id: 'flux', title: 'Магнит ағыны және кернеу', unit: 'Вб / В', slot: 'right', h: 100,
       draw(ctx, w, h, P, H) {
-        const b = G.box(w, h);
+        const b = G.box(w, h, LEG);
         const mx = Math.max(H.max('fluxTor', 900), 1) * 1.2;
         G.grid(ctx, b, 6, 3, 0, mx, v => v.toFixed(0));
         G.series(ctx, b, H, 'fluxTor', 900, 0, mx, C.cyan, { fill: 'rgba(63,224,255,0.12)' });
@@ -738,25 +742,25 @@
         G.legend(ctx, { x: b.x, y: b.y - 12 }, [
           { c: C.cyan, t: 'Φ_tor' }, { c: C.violet, t: 'Ψ_pol' }]);
         G.value(ctx, w - 8, h - 4,
-          'Φ ' + P.fluxTor.toFixed(1) + ' Wb   Vloop ' + P.Vloop.toFixed(2) + ' V',
+          'Φ ' + P.fluxTor.toFixed(1) + ' Вб   Uайн ' + P.Vloop.toFixed(2) + ' В',
           C.white, 9);
       }
     },
     {
-      id: 'pvac', title: 'Vacuum Chamber Pressure', unit: 'Pa', slot: 'right', h: 84,
+      id: 'pvac', title: 'Вакуум камерасының қысымы', unit: 'Па', slot: 'right', h: 84,
       draw(ctx, w, h, P, H) {
         const b = G.box(w, h);
         const lo = -6, hi = -2;
         G.grid(ctx, b, 6, 4, lo, hi, v => '1e' + Math.round(Math.log10(v)), true);
         G.series(ctx, b, H, 'pVac', 900, lo, hi, C.green,
           { log: true, fill: 'rgba(77,255,176,0.12)' });
-        G.value(ctx, w - 8, h - 4, expo(P.pVac, 2) + ' Pa', C.green, 10);
+        G.value(ctx, w - 8, h - 4, expo(P.pVac, 2) + ' Па', C.green, 10);
       }
     },
 
     /* -------------------------------------------------------- BOTTOM ---- */
     {
-      id: 'spectro', title: 'Te(ρ,t) Colour Heat Map', unit: 'keV', slot: 'bottom', h: 132, flex: 1.35,
+      id: 'spectro', title: 'Te(ρ,t) жылу картасы', unit: 'кэВ', slot: 'bottom', h: 132, flex: 1.35,
       draw(ctx, w, h, P, H) {
         const b = { x: 26, y: 22, w: w - 42, h: h - 46 };
         if (!this._img) {
@@ -790,16 +794,16 @@
         ctx.fillText('ρ=0', b.x - 4, b.y + 4);
         ctx.fillText('ρ=1', b.x - 4, b.y + b.h - 4);
         ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-        ctx.fillText('t − 56 s', b.x, b.y + b.h + 5);
+        ctx.fillText('t − 56 с', b.x, b.y + b.h + 5);
         ctx.textAlign = 'right';
-        ctx.fillText('now', b.x + b.w, b.y + b.h + 5);
+        ctx.fillText('қазір', b.x + b.w, b.y + b.h + 5);
         ctx.textAlign = 'center';
         ctx.fillStyle = 'rgba(200,235,250,0.9)';
-        ctx.fillText('peak ' + peak.toFixed(1) + ' keV', b.x + b.w / 2, b.y + b.h + 5);
+        ctx.fillText('макс ' + peak.toFixed(1) + ' кэВ', b.x + b.w / 2, b.y + b.h + 5);
       }
     },
     {
-      id: 'fieldlines', title: 'Magnetic Field Line Topology', unit: 'q(ρ)', slot: 'bottom', h: 132, flex: 1,
+      id: 'fieldlines', title: 'Магнит өрісі сызықтары', unit: 'q(ρ)', slot: 'bottom', h: 132, flex: 1,
       draw(ctx, w, h, P, H, t) {
         const cx = w * 0.5, cy = h * 0.52 + 4;
         const R = Math.min(w * 0.40, (h - 40) * 0.86);
@@ -837,14 +841,14 @@
         ctx.fillText('ρ=0.9  q=' + (P.q0 + (P.q95 - P.q0) * 0.85).toFixed(2), 8, h - 12);
         ctx.textAlign = 'right';
         ctx.fillStyle = P.q0 < 1 ? C.amber : 'rgba(150,210,235,0.8)';
-        ctx.fillText(P.q0 < 1 ? 'q=1 SURFACE PRESENT — SAWTEETH' : 'NO q=1 SURFACE',
+        ctx.fillText(P.q0 < 1 ? 'q=1 БЕТІ БАР — АРА ТІСТІ ТЕРБЕЛІС' : 'q=1 БЕТІ ЖОҚ',
           w - 8, h - 12);
       }
     },
     {
-      id: 'profiles', title: 'Radial Profiles', unit: 'n, T vs ρ', slot: 'bottom', h: 132, flex: 1,
+      id: 'profiles', title: 'Радиалды профильдер', unit: 'n, T — ρ', slot: 'bottom', h: 132, flex: 1,
       draw(ctx, w, h, P) {
-        const b = { x: 30, y: 24, w: w - 44, h: h - 44 };
+        const b = { x: 30, y: LEG, w: w - 44, h: h - LEG - 20 };
         G.grid(ctx, b, 5, 4, 0, 1, () => '');
         const NRp = Tokamak.NR;
         const plot = (arr, scale, col, fill) => {
@@ -876,7 +880,7 @@
         plot(P.nProf, nmax, C.violet);
         plot(P.TeProf, Tmax, C.cyan);
         plot(P.TiProf, Tmax, C.mag);
-        G.legend(ctx, { x: b.x, y: 12 }, [
+        G.legend(ctx, { x: b.x, y: LEG - 12 }, [
           { c: C.mag, t: 'Ti' }, { c: C.cyan, t: 'Te' },
           { c: C.violet, t: 'ne' }, { c: C.amber, t: 'S_fus' }]);
         ctx.font = '7px ' + FONT; ctx.fillStyle = 'rgba(150,210,235,0.75)';
@@ -885,18 +889,18 @@
         ctx.textAlign = 'right';
         ctx.fillText('ρ = 1', b.x + b.w, b.y + b.h + 4);
         ctx.textAlign = 'center';
-        ctx.fillText('T0=' + Tmax.toFixed(1) + 'keV  n0=' + nmax.toFixed(2), b.x + b.w / 2, b.y + b.h + 4);
+        ctx.fillText('T0=' + Tmax.toFixed(1) + 'кэВ  n0=' + nmax.toFixed(2), b.x + b.w / 2, b.y + b.h + 4);
       }
     },
     {
-      id: 'sensors', title: 'Sensor Readouts', unit: '', slot: 'bottom', h: 132, flex: 1.25,
+      id: 'sensors', title: 'Датчик көрсеткіштері', unit: '', slot: 'bottom', h: 132, flex: 1.25,
       draw(ctx, w, h, P) {
         const cols = 4, rows = 4;
         const pad = 7, gap = 4;
         const cw = (w - pad * 2 - gap * (cols - 1)) / cols;
         const chh = (h - 24 - pad - gap * (rows - 1)) / rows;
         const items = [
-          ['W_TH', P.W.toFixed(1), 'MJ', C.cyan, P.W / 400],
+          ['W_ЖЫЛУ', P.W.toFixed(1), 'МДж', C.cyan, P.W / 400],
           ['β_TOR', P.beta.toFixed(2), '%', C.amber, P.beta / 5],
           ['β_N', P.betaN.toFixed(2), '—', P.betaN > 3.5 ? C.red : C.green, P.betaN / 5],
           ['Z_EFF', P.Zeff.toFixed(2), '—', C.violet, (P.Zeff - 1) / 3.5],
@@ -905,14 +909,14 @@
           ['n_He/n_e', (P.nHe / Math.max(P.ne, 1e-6) * 100).toFixed(1), '%', C.amber,
             P.nHe / Math.max(P.ne, 1e-6) / 0.15],
           ['f_DT', ((P.fDT || 0) * 100).toFixed(0), '%', C.green, P.fDT || 0],
-          ['V_LOOP', P.Vloop.toFixed(2), 'V', C.cyan, P.Vloop / 3],
-          ['W_MAG', P.Wmag.toFixed(0), 'MJ', C.violet, P.Wmag / 400],
-          ['P_SEP', P.Psep.toFixed(1), 'MW', C.mag, P.Psep / 150],
-          ['P_LH', P.Pthresh.toFixed(1), 'MW', C.blue, P.Pthresh / 150],
-          ['q_DIV', P.qDiv.toFixed(1), 'MW/m²', P.qDiv > 10 ? C.red : C.green, P.qDiv / 15],
-          ['τ_He', (5 * P.tauE).toFixed(2), 's', C.amber, P.tauE * 5 / 12],
+          ['U_АЙН', P.Vloop.toFixed(2), 'В', C.cyan, P.Vloop / 3],
+          ['W_МАГН', P.Wmag.toFixed(0), 'МДж', C.violet, P.Wmag / 400],
+          ['P_СЕП', P.Psep.toFixed(1), 'МВт', C.mag, P.Psep / 150],
+          ['P_LH', P.Pthresh.toFixed(1), 'МВт', C.blue, P.Pthresh / 150],
+          ['q_ДИВ', P.qDiv.toFixed(1), 'МВт/м²', P.qDiv > 10 ? C.red : C.green, P.qDiv / 15],
+          ['τ_He', (5 * P.tauE).toFixed(2), 'с', C.amber, P.tauE * 5 / 12],
           ['n/nGW', P.fG.toFixed(2), '—', P.fG > 1 ? C.red : C.cyan, P.fG],
-          ['P_NET', (P.Pfus * 0.33 - P.Paux / 0.4).toFixed(0), 'MWe',
+          ['P_ТАЗА', (P.Pfus * 0.33 - P.Paux / 0.4).toFixed(0), 'МВт',
             P.Pfus * 0.33 - P.Paux / 0.4 > 0 ? C.green : C.red,
             (P.Pfus * 0.33 - P.Paux / 0.4) / 150]
         ];
@@ -924,24 +928,24 @@
       }
     },
     {
-      id: 'status', title: 'Reactor Status Dashboard', unit: '', slot: 'bottom', h: 132, flex: 1.1,
+      id: 'status', title: 'Реактордың күйі', unit: '', slot: 'bottom', h: 132, flex: 1.1,
       draw(ctx, w, h, P, H, t) {
         const pad = 8;
         let y = 24;
         /* subsystem LEDs */
         const sys = [
-          ['TF MAGNET', P.Bt > 4.5 ? 2 : P.Bt > 1 ? 1 : 0],
+          ['TF МАГНИТ', P.Bt > 4.5 ? 2 : P.Bt > 1 ? 1 : 0],
           ['PF / CS', P.Ip > 1 ? 2 : 1],
-          ['CRYOPLANT', 2],
-          ['VACUUM', P.pVac < 1e-3 ? 2 : 1],
-          ['FUELLING', P.gas > 0.05 ? 2 : 1],
+          ['КРИОЖҮЙЕ', 2],
+          ['ВАКУУМ', P.pVac < 1e-3 ? 2 : 1],
+          ['ОТЫН БЕРУ', P.gas > 0.05 ? 2 : 1],
           ['NBI', P.Pnbi > 1 ? 2 : 0],
           ['ICRH', P.Picr > 1 ? 2 : 0],
           ['ECRH', P.Pecr > 1 ? 2 : 0],
-          ['TRITIUM PLANT', 2],
-          ['DIVERTOR', P.qDiv > 12 ? 1 : 2],
-          ['DISRUPT MIT.', P.disrupted ? 0 : 2],
-          ['NEUTRON SHIELD', 2]
+          ['ТРИТИЙ ЗАУЫТЫ', 2],
+          ['ДИВЕРТОР', P.qDiv > 12 ? 1 : 2],
+          ['ДИЗРУПЦИЯ ҚОРҒАУ', P.disrupted ? 0 : 2],
+          ['НЕЙТРОН ҚАЛҚАНЫ', 2]
         ];
         const cols = 2;
         const cw = (w - pad * 2) / cols;
@@ -966,12 +970,12 @@
         ctx.beginPath(); ctx.moveTo(pad, y - 4); ctx.lineTo(w - pad, y - 4); ctx.stroke();
         ctx.font = '7px ' + FONT; ctx.textBaseline = 'top';
         ctx.fillStyle = 'rgba(120,225,255,0.8)';
-        ctx.fillText('EVENT LOG', pad, y);
+        ctx.fillText('ОҚИҒА ЖУРНАЛЫ', pad, y);
         y += 10;
         P.alarms.slice(0, 4).forEach(a => {
           const col = a.level === 'crit' ? C.red : a.level === 'warn' ? C.amber : C.green;
           ctx.fillStyle = col;
-          ctx.fillText('t=' + a.t.toFixed(1).padStart(6) + 's', pad, y);
+          ctx.fillText('t=' + a.t.toFixed(1).padStart(6) + 'с', pad, y);
           ctx.fillStyle = 'rgba(200,230,245,0.85)';
           const txt = a.text.length > 34 ? a.text.slice(0, 33) + '…' : a.text;
           ctx.fillText(txt, pad + 52, y);
@@ -1043,7 +1047,7 @@
       this.panels.forEach(p => {
         const ctx = p.ctx;
         ctx.setTransform(p.dpr, 0, 0, p.dpr, 0, 0);
-        G.frame(null, ctx, p.w, p.h, p.spec.title, p.spec.unit);
+        G.frame(ctx, p.w, p.h, p.spec.title, p.spec.unit);
         try {
           p.spec.draw.call(p.state, ctx, p.w, p.h, P, this.hist, t);
         } catch (e) {
@@ -1058,11 +1062,11 @@
       const el = this.topbar;
       if (!el._built) {
         el.innerHTML =
-          '<div class="tb-brand"><b>ITER-CLASS TOKAMAK</b>' +
-          '<span>CONTROLLED THERMONUCLEAR FUSION · MAGNETIC CONFINEMENT</span></div>' +
+          '<div class="tb-brand"><b>ITER КЛАСТЫ ТОКАМАК</b>' +
+          '<span>БАСҚАРЫЛАТЫН ТЕРМОЯДРОЛЫҚ СИНТЕЗ · МАГНИТТІК ҰСТАУ</span></div>' +
           '<div class="tb-stats"></div>' +
-          '<div class="tb-mode"><span class="mode-txt">IDLE</span>' +
-          '<span class="mode-sub">DISCHARGE —</span></div>';
+          '<div class="tb-mode"><span class="mode-txt">ДАЙЫН</span>' +
+          '<span class="mode-sub">РАЗРЯД —</span></div>';
         el._stats = el.querySelector('.tb-stats');
         el._mode = el.querySelector('.mode-txt');
         el._sub = el.querySelector('.mode-sub');
@@ -1072,21 +1076,21 @@
         '<div class="tb-stat ' + (cls || '') + '"><i>' + l + '</i><b>' + v +
         '</b><em>' + u + '</em></div>';
       el._stats.innerHTML =
-        stat('P_FUS', P.Pfus.toFixed(1), 'MW', 'hl') +
+        stat('P_СИН', P.Pfus.toFixed(1), 'МВт', 'hl') +
         stat('Q', P.Q > 900 ? '∞' : P.Q.toFixed(2), '', P.Q >= 10 ? 'good' : '') +
-        stat('T_i', P.Ti.toFixed(1), 'keV') +
-        stat('n_e', P.ne.toFixed(2), '10²⁰m⁻³') +
-        stat('I_p', P.Ip.toFixed(2), 'MA') +
-        stat('B_t', P.Bt.toFixed(2), 'T') +
-        stat('τ_E', P.tauE.toFixed(2), 's') +
-        stat('W', P.W.toFixed(0), 'MJ') +
-        stat('N', expo(P.neutronRate, 1), 'n/s');
-      const m = P.mode;
-      el._mode.textContent = m;
+        stat('T_i', P.Ti.toFixed(1), 'кэВ') +
+        stat('n_e', P.ne.toFixed(2), '10²⁰м⁻³') +
+        stat('I_p', P.Ip.toFixed(2), 'МА') +
+        stat('B_t', P.Bt.toFixed(2), 'Тл') +
+        stat('τ_E', P.tauE.toFixed(2), 'с') +
+        stat('W', P.W.toFixed(0), 'МДж') +
+        stat('N', expo(P.neutronRate, 1), 'н/с');
+      el._mode.textContent = P.mode;
+      const k = P.modeKey;
       el._mode.className = 'mode-txt ' +
-        (m === 'DISRUPTION' ? 'crit' : m === 'BURN' ? 'burn' :
-         m === 'H-MODE' ? 'good' : '');
-      el._sub.textContent = 'SHOT #' + P.shotNo + '   t = ' + P.t.toFixed(2) + ' s';
+        (k === 'disrupt' ? 'crit' : k === 'burn' ? 'burn' :
+         k === 'hmode' ? 'good' : '');
+      el._sub.textContent = 'РАЗРЯД №' + P.shotNo + '   t = ' + P.t.toFixed(2) + ' с';
     }
 
     toggle() {

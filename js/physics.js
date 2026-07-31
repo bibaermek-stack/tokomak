@@ -102,7 +102,8 @@
       this.Pnbi = 0; this.Picr = 0; this.Pecr = 0; this.gas = 0;
 
       /* --- regime / event state ------------------------------------------ */
-      this.mode      = 'IDLE'; // IDLE|BREAKDOWN|RAMP-UP|L-MODE|H-MODE|BURN|RAMP-DOWN|DISRUPT
+      this.modeKey   = 'idle';
+      this.mode      = 'ДАЙЫН';
       this.hMode     = false;
       this.H98       = 0.50;
       this.elmPhase  = 0;  this.elmFlash = 0;  this.elmCount = 0;
@@ -331,10 +332,10 @@
       this.Pthresh = this.lhThreshold();
       if (!this.hMode && Pheat > this.Pthresh * 1.05 && this.Ip > 6 && this.t > 6) {
         this.hMode = true; this.elmPhase = 0;
-        this.pushAlarm('L-H TRANSITION', 'ok');
+        this.pushAlarm('L-H АУЫСУЫ', 'ok');
       } else if (this.hMode && Pheat < this.Pthresh * 0.75) {
         this.hMode = false;
-        this.pushAlarm('H-L BACK TRANSITION', 'warn');
+        this.pushAlarm('H-L КЕРІ АУЫСУЫ', 'warn');
       }
       const targetH = this.hMode ? 1.00 : 0.52;
       this.H98 += (targetH - this.H98) * clamp(dt / 0.35, 0, 1);
@@ -431,11 +432,11 @@
          channel — during breakdown the plasma is far from any of them. */
       if (!this.disrupted && this.t > 5 && this.Ip > 2.0) {
         let cause = null;
-        if (this.fG > 1.25) cause = 'DENSITY LIMIT — GREENWALD EXCEEDED';
-        else if (this.q95 < 2.0 && this.Ip > 2) cause = 'LOW q95 — KINK UNSTABLE';
-        else if (this.betaN > 4.2) cause = 'BETA LIMIT — IDEAL MHD';
+        if (this.fG > 1.25) cause = 'ТЫҒЫЗДЫҚ ШЕГІ — ГРИНВАЛЬД АСЫП КЕТТІ';
+        else if (this.q95 < 2.0 && this.Ip > 2) cause = 'q95 ТӨМЕН — КИНК ТҰРАҚСЫЗДЫҒЫ';
+        else if (this.betaN > 4.2) cause = 'БЕТА ШЕГІ — ИДЕАЛ МГД';
         else if (this.Prad > (this.Paux + this.Pohm + this.Palpha) * 1.35 && this.Te > 1)
-          cause = 'RADIATIVE COLLAPSE';
+          cause = 'СӘУЛЕЛЕНУ КОЛЛАПСЫ';
         if (cause) this.triggerDisruption(cause);
       }
       if (this.disrupted) {
@@ -500,14 +501,16 @@
       this.ignition += (ig - this.ignition) * clamp((dt || 0.016) * 2.5, 0, 1);
 
       /* operating mode label */
+      /* modeKey stays stable for styling / logic; mode is the display text */
       this._peakIp = Math.max(this._peakIp || 0, this.Ip);
-      if (this.disrupted)          this.mode = 'DISRUPTION';
-      else if (this.Ip < 0.5)      this.mode = 'BREAKDOWN';
-      else if (this.Ip < this._peakIp - 0.5) this.mode = 'RAMP-DOWN';
-      else if (this.Ip < M.IpNom * 0.93) this.mode = 'RAMP-UP';
-      else if (this.Q > 4)         this.mode = 'BURN';
-      else if (this.hMode)         this.mode = 'H-MODE';
-      else                         this.mode = 'L-MODE';
+      if (this.disrupted)                    this.modeKey = 'disrupt';
+      else if (this.Ip < 0.5)                this.modeKey = 'breakdown';
+      else if (this.Ip < this._peakIp - 0.5) this.modeKey = 'rampdown';
+      else if (this.Ip < M.IpNom * 0.93)     this.modeKey = 'rampup';
+      else if (this.Q > 4)                   this.modeKey = 'burn';
+      else if (this.hMode)                   this.modeKey = 'hmode';
+      else                                   this.modeKey = 'lmode';
+      this.mode = Tokamak.MODE_LABEL[this.modeKey];
     }
 
     /* -------------------------------------------------------------------- */
@@ -521,25 +524,37 @@
       this.disrupted = true;
       this.disruptT = this.t;
       this.hMode = false;
-      this.pushAlarm('DISRUPTION: ' + cause, 'crit');
+      this.pushAlarm('ДИЗРУПЦИЯ: ' + cause, 'crit');
     }
 
     /* user actions ------------------------------------------------------- */
     injectPellet() {
       this.ne = Math.min(this.ne + 0.22, 2.5);
       this.Te *= 0.93; this.Ti *= 0.94;
-      this.pushAlarm('PELLET INJECTED — 5.0 mm D-T', 'ok');
+      this.pushAlarm('ПЕЛЛЕТ ЕНГІЗІЛДІ — 5.0 мм D-T', 'ok');
     }
     forceELM() {
       this.elmPhase = 1.01;
-      this.pushAlarm('ELM PACING COIL PULSE', 'ok');
+      this.pushAlarm('ELM БАСҚАРУ ИМПУЛЬСІ', 'ok');
     }
     mitigate() {
-      if (!this.disrupted) { this.pushAlarm('DMV ARMED — NO DISRUPTION', 'warn'); return; }
+      if (!this.disrupted) { this.pushAlarm('DMV ДАЙЫН — ДИЗРУПЦИЯ ЖОҚ', 'warn'); return; }
       this.Prad += 200;
-      this.pushAlarm('MASSIVE GAS INJECTION — MITIGATED', 'ok');
+      this.pushAlarm('МАССАЛЫҚ ГАЗ ЕНГІЗУ — БӘСЕҢДЕТІЛДІ', 'ok');
     }
   }
+
+  /* Display labels for each operating regime (Kazakh). */
+  Tokamak.MODE_LABEL = {
+    idle:      'ДАЙЫН',
+    breakdown: 'ІСКЕ ҚОСУ',
+    rampup:    'ТОК ӨСУІ',
+    lmode:     'L-РЕЖИМ',
+    hmode:     'H-РЕЖИМ',
+    burn:      'ЖАНУ',
+    rampdown:  'ТОК ТӨМЕНДЕУІ',
+    disrupt:   'ДИЗРУПЦИЯ'
+  };
 
   Tokamak.NR = NR;
   Tokamak.RHO = RHO;

@@ -1,14 +1,217 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="kk">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Tokamak — Controlled Thermonuclear Fusion Simulator</title>
+<title>СИНТЕЗ — Интерактивті токамак реакторы</title>
+<meta name="description" content="Физикалық модельге негізделген интерактивті токамак: вакуумдық камераның ішіне ұшып кіріп, дейтерий–тритий синтезінің нақты уақыттағы диагностикасын бақылаңыз.">
 <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body data-stage="landing">
 
 <canvas id="gl"></canvas>
+<div id="scrim"></div>
+
+<!-- ======================================================== site chrome -->
+<header id="topnav">
+  <a class="brand" href="#top">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-txt"><b>СИНТЕЗ</b><i>ИНТЕРАКТИВТІ ТОКАМАК</i></span>
+  </a>
+  <nav>
+    <a href="#how">Жұмыс принципі</a>
+    <a href="#anatomy">Құрылымы</a>
+    <a href="#physics">Физикасы</a>
+    <a href="#numbers">Негізгі сандар</a>
+  </nav>
+  <button id="nav-launch" class="ghost">Реакторға кіру</button>
+</header>
+
+<!-- ============================================================ landing -->
+<section id="landing">
+  <div class="hero-top">
+    <p class="eyebrow">МАГНИТТІК ҰСТАУ · ДЕЙТЕРИЙ–ТРИТИЙ · ITER КЛАСЫ</p>
+    <h1>Магнит өрісінде ұсталған жұлдыз.</h1>
+    <p class="lede">
+      Бұл — анимация емес, шынайы жұмыс істейтін токамак. Плазманың күйін
+      нақты тасымал моделі есептеп отырады. Криостат пен асқын өткізгіш
+      катушкалардан ұшып өтіп, жанып жатқан плазманы ішінен көріңіз.
+    </p>
+  </div>
+
+  <div class="hero-bottom">
+    <button id="btn-start" class="cta">
+      <span class="cta-glow" aria-hidden="true"></span>
+      <span class="cta-ico" aria-hidden="true">▶</span>
+      <span class="cta-txt">Симуляцияны бастау</span>
+      <span class="cta-sub">Плазма ядросына 7 секундтық ұшу</span>
+    </button>
+    <div class="hero-stats">
+      <div><b>500</b><i>МВт синтез қуаты</i></div>
+      <div><b>150</b><i>миллион °C</i></div>
+      <div><b>Q = 10</b><i>энергия ұтысы</i></div>
+      <div><b>15</b><i>МА плазма тогы</i></div>
+    </div>
+    <p class="hint-drag">Айналдыру үшін сүйреңіз · оқу үшін төмен жылжытыңыз</p>
+  </div>
+</section>
+
+<!-- =========================================================== articles -->
+<main id="article">
+
+  <section id="how" class="sec">
+    <span class="sec-num">01</span>
+    <h2>Токамак қалай жұмыс істейді</h2>
+    <div class="cols">
+      <p>
+        Синтез үшін екі жеңіл ядро бір-біріне жанасуы керек. Екеуі де оң
+        зарядты, сондықтан бір-бірін тебеді — бұл тебілісті тек орасан ыстық
+        жеңе алады. Шамамен <b>150 миллион °C</b> температурада, яғни Күн
+        ядросынан он есе ыстықта, дейтерий мен тритий бірігетіндей күшпен
+        соқтығысады.
+      </p>
+      <p>
+        Мұндай ыстық затты ешқандай қатты дене ұстай алмайды. Бірақ бұл
+        температурада отын толық иондалған — еркін ядролар мен электрондардан
+        тұратын <b>плазма</b>, ал зарядты бөлшектер магнит өрісінің сызықтары
+        бойымен ғана қозғала алады. Сондықтан ұштары жоқ магнит бөтелкесі
+        жасалады: тор. Токамак деп осыны атайды.
+      </p>
+    </div>
+    <div class="cards">
+      <article class="card">
+        <h3>Тороидалды өріс</h3>
+        <p>Тордың айналасын он сегіз D-пішінді асқын өткізгіш катушка орайды
+           да, сақина бойымен 5.3 Тл өріс тудырады. Бұл — негізгі ұстаушы
+           өріс.</p>
+      </article>
+      <article class="card">
+        <h3>Плазма тогы</h3>
+        <p>Орталық соленоид трансформатордың екінші орамы сияқты плазма
+           арқылы 15 МА ток жүргізіп, өріс сызықтарына бұралу қосады.</p>
+      </article>
+      <article class="card">
+        <h3>Бұрандалы өріс</h3>
+        <p>Тороидалды және полоидалды өрістердің қосындысы бұранда береді.
+           Осы бұралу бөлшектерді қабырғаға итеретін дрейфтерді жояды.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="anatomy" class="sec">
+    <span class="sec-num">02</span>
+    <h2>Машинаның құрылымы</h2>
+    <p class="sec-lede">
+      Жоғарыдағы 3D модельдегі әрбір торап нақты масштабта орналасқан.
+      Қатардың үстіне тінтуірді апарып, оның қызметімен танысыңыз.
+    </p>
+    <ol class="anatomy">
+      <li data-part="cryostat"><b>Криостат</b>
+        <span>Бүкіл машинаны қоршаған вакуумдық қаптама. Магниттерді 4.5 K
+        температурада ұстау үшін жылулық вакуум жасайды.</span></li>
+      <li data-part="tf"><b>Тороидалды өріс катушкалары</b>
+        <span>Әрқайсысы 68 кА ток өткізетін Nb₃Sn асқын өткізгіштері. Барлығы
+        шамамен 41 ГДж энергия жинайды — бұл ұшып бара жатқан жүк
+        ұшағының энергиясына тең.</span></li>
+      <li data-part="pf"><b>Полоидалды өріс катушкалары</b>
+        <span>Плазманың пішінін, орнын және тік тұрақтылығын реттейтін алты
+        сақиналы магнит. Плазманы созылған D-қимасына келтіреді.</span></li>
+      <li data-part="cs"><b>Орталық соленоид</b>
+        <span>Трансформатор өзегі. Өзгеретін ағыны плазма тогын тудырып,
+        оны ұстап тұрады.</span></li>
+      <li data-part="vessel"><b>Вакуумдық камера</b>
+        <span>10⁻⁶ Па қысымдағы қос қабырғалы болат тор. Плазма оған
+        тимейді — арасын бірнеше сантиметрлік магнит саңылауы бөліп
+        тұрады.</span></li>
+      <li data-part="wall"><b>Бірінші қабырға және бланкет</b>
+        <span>Нейтрон ағынын сіңіретін, литийден тритий өндіретін және жылуды
+        әкететін бериллий қапталған панельдер.</span></li>
+      <li data-part="divertor"><b>Дивертор</b>
+        <span>Шығару жүйесі. Соңғы тұйық бетінен тыс өріс сызықтары осында
+        бағытталып, гелий күлін және 10 МВт/м²-ге дейінгі жылуды
+        шығарады.</span></li>
+    </ol>
+  </section>
+
+  <section id="physics" class="sec">
+    <span class="sec-num">03</span>
+    <h2>Симуляция шын мәнінде нені есептейді</h2>
+    <div class="cols">
+      <p>
+        Басқару тақтасы жай әшекей емес. Оның артында нөл өлшемді тасымал
+        моделі жұмыс істейді: электрон мен ионның энергия арналары бөлек,
+        гелий күлінің жиналуы бар бөлшектер балансы және плазма тогының өсуі
+        әр кадрда төрт рет интегралданады.
+      </p>
+      <p>
+        Синтез қуаты D–T реакциясының жылдамдығын сипаттайтын
+        <b>Бош–Хейл</b> параметрлеуінен алынып, радиалды профильдер бойынша
+        интегралданады. Ұстау уақыты <b>IPB98(y,2)</b> заңдылығымен, L→H
+        ауысуы <b>Мартин 2008</b> шегімен, тығыздық шегі Гринвальд шегімен
+        есептеледі.
+      </p>
+    </div>
+    <div class="eqs">
+      <div class="eq">
+        <code>dW/dt = P<sub>қыз</sub> + P<sub>α</sub> + P<sub>Ω</sub> − P<sub>сәуле</sub> − W/τ<sub>E</sub></code>
+        <span>Энергия балансы. P<sub>α</sub> шығындарды жалғыз өтей бастағанда
+        плазма жанып тұр деп саналады.</span>
+      </div>
+      <div class="eq">
+        <code>P<sub>син</sub> = n<sub>D</sub> n<sub>T</sub> ⟨σv⟩ E<sub>син</sub> V</code>
+        <span>Реакция жылдамдығы. ⟨σv⟩ шамасы 15 кэВ маңында күрт өседі —
+        сондықтан тұтану бірте-бірте емес, шектен асқанда болады.</span>
+      </div>
+      <div class="eq">
+        <code>Q = P<sub>син</sub> / P<sub>қыз</sub></code>
+        <span>Энергия ұтысы. Q = 1 — тепе-теңдік, Q = 10 — ITER жобалық
+        нүктесі, Q = ∞ — толық тұтану.</span>
+      </div>
+    </div>
+    <p class="note">
+      Машинаның өз-өзімен күресін бақылаңыз: q₀ бірден төмендегенде пайда
+      болатын ара тісті құлаулар, дивертордың үстіне жинақталған энергияның
+      2 %-ын лақтыратын шеттік модалар (ELM) және тығыздықты Гринвальд
+      шегінен асырсаңыз болатын дизрупция. Мұның бәрі модельден өздігінен
+      туындайды — ешқайсысы алдын ала жазылмаған.
+    </p>
+  </section>
+
+  <section id="numbers" class="sec">
+    <span class="sec-num">04</span>
+    <h2>Негізгі сандар</h2>
+    <div class="numgrid">
+      <div><b>6.2 м</b><i>Үлкен радиус R₀</i></div>
+      <div><b>2.0 м</b><i>Кіші радиус a</i></div>
+      <div><b>830 м³</b><i>Плазма көлемі</i></div>
+      <div><b>5.3 Тл</b><i>Тороидалды өріс</i></div>
+      <div><b>15 МА</b><i>Плазма тогы</i></div>
+      <div><b>~3.7 с</b><i>Ұстау уақыты τ<sub>E</sub></i></div>
+      <div><b>10²⁰ м⁻³</b><i>Электрон тығыздығы</i></div>
+      <div><b>1.8×10²⁰ н/с</b><i>Толық қуаттағы нейтрон ағыны</i></div>
+    </div>
+    <div class="footer-cta">
+      <button id="btn-start-2" class="cta small">
+        <span class="cta-ico" aria-hidden="true">▶</span>
+        <span class="cta-txt">Симуляцияны бастау</span>
+      </button>
+    </div>
+  </section>
+
+  <footer id="foot">
+    <p>Оқу-ағарту мақсатындағы визуализация ретінде жасалған. Физикалық
+       параметрлеулер: Bosch &amp; Hale (1992) · ITER Physics Basis (1999) ·
+       Martin et al. (2008) · Greenwald (2002). Машинаның компоновкасы ITER
+       базалық жобасы бойынша.</p>
+  </footer>
+</main>
+
+<!-- ===================================================== flight overlay -->
+<div id="flight-ui">
+  <div class="fl-bar"><i></i></div>
+  <div class="fl-caption"><b></b><span></span></div>
+  <button id="btn-skip" class="ghost">Өткізіп жіберу ▸</button>
+</div>
 
 <!-- ===================================================== monitoring HUD -->
 <div id="hud">
@@ -22,63 +225,70 @@
         <circle cx="100" cy="100" r="72" />
         <path d="M100 2 v14 M100 184 v14 M2 100 h14 M184 100 h14" />
       </svg>
-      <div class="reticle-tag">VESSEL PORT #7 · WIDE-ANGLE PERISCOPE · Hα FILTER OFF</div>
+      <div class="reticle-tag">ПОРТ №7 · КЕҢ БҰРЫШТЫ ПЕРИСКОП · Hα СҮЗГІ ӨШІРУЛІ</div>
     </div>
 
     <div id="controls">
       <div class="ctl-group">
-        <div class="ctl-head">HEATING SYSTEMS</div>
+        <div class="ctl-head">ҚЫЗДЫРУ ЖҮЙЕЛЕРІ</div>
         <label class="ctl"><span>NBI</span>
           <input type="range" id="c-nbi" min="0" max="50" step="0.5" value="0">
-          <b id="v-nbi">0.0 MW</b></label>
+          <b id="v-nbi">0.0 МВт</b></label>
         <label class="ctl"><span>ICRH</span>
           <input type="range" id="c-icr" min="0" max="30" step="0.5" value="0">
-          <b id="v-icr">0.0 MW</b></label>
+          <b id="v-icr">0.0 МВт</b></label>
         <label class="ctl"><span>ECRH</span>
           <input type="range" id="c-ecr" min="0" max="30" step="0.5" value="0">
-          <b id="v-ecr">0.0 MW</b></label>
+          <b id="v-ecr">0.0 МВт</b></label>
       </div>
 
       <div class="ctl-group">
-        <div class="ctl-head">PLASMA CONTROL</div>
-        <label class="ctl"><span>GAS PUFF</span>
+        <div class="ctl-head">ПЛАЗМАНЫ БАСҚАРУ</div>
+        <label class="ctl"><span>ГАЗ БЕРУ</span>
           <input type="range" id="c-gas" min="0" max="1" step="0.01" value="0">
           <b id="v-gas">0.00</b></label>
-        <label class="ctl"><span>I<sub>p</sub> REF</span>
+        <label class="ctl"><span>I<sub>p</sub> ТАПС</span>
           <input type="range" id="c-ip" min="0" max="17" step="0.1" value="0.2">
-          <b id="v-ip">0.2 MA</b></label>
+          <b id="v-ip">0.2 МА</b></label>
         <label class="ctl"><span>B<sub>t</sub></span>
           <input type="range" id="c-bt" min="1" max="6" step="0.05" value="5.3">
-          <b id="v-bt">5.30 T</b></label>
+          <b id="v-bt">5.30 Тл</b></label>
       </div>
 
       <div class="ctl-group">
-        <div class="ctl-head">ACTUATORS</div>
+        <div class="ctl-head">АТҚАРУШЫ ТЕТІКТЕР</div>
         <div class="btn-row">
-          <button id="b-auto" class="on">AUTOPILOT</button>
-          <button id="b-pellet">PELLET</button>
-          <button id="b-elm">ELM PULSE</button>
+          <button id="b-auto" class="on">АВТОПИЛОТ</button>
+          <button id="b-pellet">ПЕЛЛЕТ</button>
+          <button id="b-elm">ELM ИМПУЛЬС</button>
         </div>
         <div class="btn-row">
-          <button id="b-disrupt" class="danger">FORCE DISRUPT</button>
+          <button id="b-disrupt" class="danger">ДИЗРУПЦИЯ</button>
           <button id="b-mitigate">MGI</button>
-          <button id="b-reset">NEW SHOT</button>
+          <button id="b-reset">ҚАЙТА ҚОСУ</button>
         </div>
       </div>
 
       <div class="ctl-group">
-        <div class="ctl-head">VIEW / ENGINE</div>
+        <div class="ctl-head">ВИЗУАЛИЗАЦИЯ</div>
         <div class="btn-row">
-          <button id="b-quality" data-q="high">QUALITY: HIGH</button>
-          <button id="b-orbit" class="on">ORBIT</button>
-          <button id="b-lines">B-LINES</button>
-          <button id="b-parts">PARTICLES</button>
+          <button id="b-pause">⏸ ТОҚТАТУ</button>
+          <button id="b-lines">B-ӨРІСІ</button>
+          <button id="b-parts">БӨЛШЕКТЕР</button>
         </div>
-        <label class="ctl"><span>TIME ×</span>
-          <input type="range" id="c-rate" min="0" max="5" step="0.05" value="1">
-          <b id="v-rate">1.00×</b></label>
-        <div class="hint">DRAG orbit · WHEEL zoom · <kbd>H</kbd> hud ·
-          <kbd>P</kbd> pause · <kbd>F</kbd> fullscreen · <kbd>C</kbd> controls</div>
+        <div class="btn-row">
+          <button id="b-plasma" class="on">ПЛАЗМА</button>
+          <button id="b-heat">ЖЫЛУ КАРТАСЫ</button>
+          <button id="b-xsec">КӨЛДЕНЕҢ ҚИМА</button>
+        </div>
+        <div class="btn-row">
+          <button id="b-quality" data-q="high">САПА: ЖОҒАРЫ</button>
+          <button id="b-orbit" class="on">АЙНАЛУ</button>
+          <button id="b-exit">◂ ШЫҒУ</button>
+        </div>
+        <div class="hint">СҮЙРЕҢІЗ — айналдыру · ДӨҢГЕЛЕК — масштаб ·
+          <kbd>H</kbd> панель · <kbd>P</kbd> тоқтату ·
+          <kbd>F</kbd> толық экран · <kbd>C</kbd> басқару</div>
       </div>
     </div>
   </section>
@@ -90,8 +300,8 @@
 <!-- ============================================================== boot -->
 <div id="boot">
   <div class="boot-inner">
-    <div class="boot-title">TOKAMAK FUSION REACTOR</div>
-    <div class="boot-sub">MAGNETIC CONFINEMENT · DEUTERIUM–TRITIUM · REAL-TIME DIAGNOSTICS</div>
+    <div class="boot-title">ТОКАМАК СИНТЕЗ РЕАКТОРЫ</div>
+    <div class="boot-sub">МАГНИТТІК ҰСТАУ · ДЕЙТЕРИЙ–ТРИТИЙ · НАҚТЫ УАҚЫТТАҒЫ ДИАГНОСТИКА</div>
     <div class="boot-bar"><i></i></div>
     <div class="boot-log" id="boot-log"></div>
   </div>
