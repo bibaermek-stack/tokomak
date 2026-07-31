@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tokamak — Controlled Thermonuclear Fusion Simulator</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+
+<!-- ===================================================== monitoring HUD -->
+<div id="hud">
+  <header id="hud-top"></header>
+  <aside id="hud-left"  class="rail"></aside>
+
+  <section id="hud-center">
+    <div id="reticle">
+      <svg viewBox="0 0 200 200" aria-hidden="true">
+        <circle cx="100" cy="100" r="96" />
+        <circle cx="100" cy="100" r="72" />
+        <path d="M100 2 v14 M100 184 v14 M2 100 h14 M184 100 h14" />
+      </svg>
+      <div class="reticle-tag">VESSEL PORT #7 · WIDE-ANGLE PERISCOPE · Hα FILTER OFF</div>
+    </div>
+
+    <div id="controls">
+      <div class="ctl-group">
+        <div class="ctl-head">HEATING SYSTEMS</div>
+        <label class="ctl"><span>NBI</span>
+          <input type="range" id="c-nbi" min="0" max="50" step="0.5" value="0">
+          <b id="v-nbi">0.0 MW</b></label>
+        <label class="ctl"><span>ICRH</span>
+          <input type="range" id="c-icr" min="0" max="30" step="0.5" value="0">
+          <b id="v-icr">0.0 MW</b></label>
+        <label class="ctl"><span>ECRH</span>
+          <input type="range" id="c-ecr" min="0" max="30" step="0.5" value="0">
+          <b id="v-ecr">0.0 MW</b></label>
+      </div>
+
+      <div class="ctl-group">
+        <div class="ctl-head">PLASMA CONTROL</div>
+        <label class="ctl"><span>GAS PUFF</span>
+          <input type="range" id="c-gas" min="0" max="1" step="0.01" value="0">
+          <b id="v-gas">0.00</b></label>
+        <label class="ctl"><span>I<sub>p</sub> REF</span>
+          <input type="range" id="c-ip" min="0" max="17" step="0.1" value="0.2">
+          <b id="v-ip">0.2 MA</b></label>
+        <label class="ctl"><span>B<sub>t</sub></span>
+          <input type="range" id="c-bt" min="1" max="6" step="0.05" value="5.3">
+          <b id="v-bt">5.30 T</b></label>
+      </div>
+
+      <div class="ctl-group">
+        <div class="ctl-head">ACTUATORS</div>
+        <div class="btn-row">
+          <button id="b-auto" class="on">AUTOPILOT</button>
+          <button id="b-pellet">PELLET</button>
+          <button id="b-elm">ELM PULSE</button>
+        </div>
+        <div class="btn-row">
+          <button id="b-disrupt" class="danger">FORCE DISRUPT</button>
+          <button id="b-mitigate">MGI</button>
+          <button id="b-reset">NEW SHOT</button>
+        </div>
+      </div>
+
+      <div class="ctl-group">
+        <div class="ctl-head">VIEW / ENGINE</div>
+        <div class="btn-row">
+          <button id="b-quality" data-q="high">QUALITY: HIGH</button>
+          <button id="b-orbit" class="on">ORBIT</button>
+          <button id="b-lines">B-LINES</button>
+          <button id="b-parts">PARTICLES</button>
+        </div>
+        <label class="ctl"><span>TIME ×</span>
+          <input type="range" id="c-rate" min="0" max="5" step="0.05" value="1">
+          <b id="v-rate">1.00×</b></label>
+        <div class="hint">DRAG orbit · WHEEL zoom · <kbd>H</kbd> hud ·
+          <kbd>P</kbd> pause · <kbd>F</kbd> fullscreen · <kbd>C</kbd> controls</div>
+      </div>
+    </div>
+  </section>
+
+  <aside id="hud-right" class="rail"></aside>
+  <footer id="hud-bottom"></footer>
+</div>
+
+<!-- ============================================================== boot -->
+<div id="boot">
+  <div class="boot-inner">
+    <div class="boot-title">TOKAMAK FUSION REACTOR</div>
+    <div class="boot-sub">MAGNETIC CONFINEMENT · DEUTERIUM–TRITIUM · REAL-TIME DIAGNOSTICS</div>
+    <div class="boot-bar"><i></i></div>
+    <div class="boot-log" id="boot-log"></div>
+  </div>
+</div>
+
+<div id="fatal" hidden></div>
+
+<script src="js/physics.js"></script>
+<script src="js/shaders.js"></script>
+<script src="js/render.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
