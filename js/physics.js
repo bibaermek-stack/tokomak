@@ -513,6 +513,30 @@
       this.mode = Tokamak.MODE_LABEL[this.modeKey];
     }
 
+    /* Cheap state capture, so a known-good phase of the discharge can be
+       restored instantly instead of re-integrating tens of seconds.  Only
+       scalars are stored: the profiles and every derived quantity are
+       rebuilt from them on restore. */
+    snapshot() {
+      const s = {};
+      for (const k in this) {
+        const v = this[k];
+        const t = typeof v;
+        if (t === 'number' || t === 'boolean' || t === 'string') s[k] = v;
+      }
+      s.alarms = this.alarms.map(a => ({ text: a.text, level: a.level, t: a.t }));
+      return s;
+    }
+
+    restore(s) {
+      if (!s) return;
+      for (const k in s) if (k !== 'alarms') this[k] = s[k];
+      this.alarms = s.alarms.map(a => ({ text: a.text, level: a.level, t: a.t }));
+      this.buildProfiles();
+      this.integrateProfiles();
+      this.updateDerived(0);
+    }
+
     /* -------------------------------------------------------------------- */
     pushAlarm(text, level) {
       this.alarms.unshift({ text, level, t: this.t });

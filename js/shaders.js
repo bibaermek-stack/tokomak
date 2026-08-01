@@ -371,13 +371,15 @@ vec4 plasmaAt(vec3 p, float rho, float th, float dleg){
   float kill = 1.0 - 0.55*uDisrupt*step(0.5, hash11(floor(uTime*22.0)+floor(phi*3.0)));
   edge *= kill; sol *= kill; core *= kill;
 
-  vec3 cCore = mix(vec3(0.35,0.52,1.00), vec3(0.72,0.82,1.00), uTemp);
+  /* The hot core is optically thin: it should tint the view violet, not
+     add a white glow that flattens the whole chamber. */
+  vec3 cCore = mix(vec3(0.34,0.44,1.00), vec3(0.58,0.52,1.00), uTemp);
   vec3 cEdge = mix(vec3(0.85,0.16,0.92), vec3(1.00,0.32,0.86), uTemp);
   vec3 cDiv  = vec3(1.00,0.62,0.92);
   float vt = smoothstep(-1.4, 1.9, p.y);
   cEdge = mix(cEdge, vec3(0.50,0.42,1.00), vt*0.55);
 
-  vec3 col = cCore*core*1.25 + cEdge*(edge + sol)*ripple;
+  vec3 col = cCore*core*0.70 + cEdge*(edge + sol)*ripple;
   col += cDiv * (div*4.50 + strike*1.80);
 
   if(uElm > 0.001){
@@ -505,9 +507,11 @@ vec3 ringLighting(vec3 p, vec3 n, vec3 v, float rough, float metal, vec3 alb){
      ring shows as scalloped banding on the wall; with it the error becomes
      noise, which the bloom and grain absorb completely. */
   float jit = hash13(vec3(gl_FragCoord.xy, 7.3));
-  vec3 cMid = mix(vec3(0.90,0.18,0.95), vec3(1.00,0.35,0.88), uTemp);
-  vec3 cDiv = vec3(1.00,0.58,0.90);
-  vec3 cTop = vec3(0.42,0.46,1.00);
+  /* Deeply saturated: the first wall in the reference glows magenta, and a
+     desaturated light here is what makes the chamber read as white haze. */
+  vec3 cMid = mix(vec3(1.00,0.10,0.86), vec3(1.00,0.24,0.78), uTemp);
+  vec3 cDiv = vec3(1.00,0.46,0.84);
+  vec3 cTop = vec3(0.34,0.40,1.00);
   float e = uEmis * (1.0 + 1.6*uElm) * uShowPlasma;
   for(int i=0;i<48;i++){
     if(i >= nl) break;
@@ -524,7 +528,7 @@ vec3 ringLighting(vec3 p, vec3 n, vec3 v, float rough, float metal, vec3 alb){
     acc += lightPoint(p,n,v, vec3(cs.x*2.25, 1.30, cs.y*2.25),
                       cTop*e*0.22, rough, metal, alb);
   }
-  return acc * (1.35/N);
+  return acc * (1.05/N);
 }
 
 /* False-colour overlay for the first wall heat load. */
@@ -711,6 +715,12 @@ void main(){
     vec3 pamb = mix(vec3(0.42,0.16,0.55), vec3(0.07,0.09,0.30),
                     smoothstep(-1.8,1.6,p.y));
     surf += alb * pamb * uEmis * uShowPlasma * 0.045 * ao;
+    /* Between shots the plasma emits almost nothing and the chamber is lit
+       by nothing at all.  A small fill that fades out as the plasma comes
+       up keeps the first wall readable during breakdown and ramp-up
+       without touching the burn phase. */
+    float dim = 1.0 - smoothstep(0.18, 0.65, uEmis * uShowPlasma);
+    surf += alb * vec3(0.10, 0.12, 0.20) * dim * ao;
     surf += emis;
 
     /* --- arcing on the first wall during transients ------------------- */

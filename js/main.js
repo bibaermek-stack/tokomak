@@ -160,9 +160,17 @@
     body.dataset.stage = s;
   }
 
+  /* A discharge runs 150 s and only the burn phase looks like anything: at
+     breakdown the chamber is dark and cold, during ramp-down it is a dull
+     haze.  The landing model free-runs so it stays alive, but arriving
+     inside should always land on ignition — so the flight rewinds the shot
+     to just before burn and the 7 s move ends as the plasma lights up.   */
+  let burnState = null;
+
   function startFlight() {
     if (sim.stage !== 'landing' && sim.stage !== 'anatomy') return;
     pinHighlight(-1);
+    if (burnState) phys.restore(burnState);
     setStage('flight');
     renderer.startFlight();
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -409,6 +417,11 @@
        but the dashboard history only matters once we are inside */
     const simDt = sim.paused ? 0 : dt * sim.rate;
     if (simDt > 0) phys.step(simDt);
+    /* keep the landing model in its glowing phase however long it is left
+       running; inside the simulation the discharge is free to play out */
+    if (sim.stage !== 'sim' && burnState && (phys.t > 112 || phys.disrupted)) {
+      phys.restore(burnState);
+    }
 
     renderer.updateShot(dt, t);
 
@@ -436,8 +449,11 @@
   /* ------------------------------------------------------------ start --- */
   boot(() => {
     layout();
-    /* give the landing shot a plasma that is already burning */
-    for (let i = 0; i < 3400; i++) phys.step(0.01);
+    /* Run up to the moment the plasma ignites and keep that state, then
+       carry on a little further so the landing shot opens mid-burn. */
+    for (let i = 0; i < 2400; i++) phys.step(0.01);
+    burnState = phys.snapshot();
+    for (let i = 0; i < 1000; i++) phys.step(0.01);
     /* size the renderer to whatever this GPU can actually sustain */
     try {
       const r = renderer.probe(phys, window.innerWidth, window.innerHeight);

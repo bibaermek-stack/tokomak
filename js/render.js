@@ -135,7 +135,7 @@
          product shot, the interior is a blazing light box. A single exposure
          either crushes the machine or washes out the plasma.               */
       this.post = {
-        exposureIn: 0.46, exposureOut: 1.30,
+        exposureIn: 0.38, exposureOut: 1.30,
         vignetteIn: 0.82, vignetteOut: 0.52,
         bloom: 0.30, shimmer: 1.0, grain: 0.035
       };
