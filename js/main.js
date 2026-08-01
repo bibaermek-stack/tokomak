@@ -62,7 +62,8 @@
 
   const view = {
     fieldLines: false, particles: false,
-    plasma: true, coils: true, heatMap: false, crossSection: false
+    plasma: true, coils: true, heatMap: false, crossSection: false,
+    highlight: 0
   };
   const sim = { rate: 1.0, paused: false, stage: 'landing' };
 
@@ -77,6 +78,76 @@
     { p: 0.97, t: 'ПЛАЗМА САҚИНАСЫНЫҢ ІШІНДЕ',  s: 'Диагностика іске қосылуда' }
   ];
 
+  /* --------------------------------------------------------- anatomy --- */
+  /* Callout anchors are given in machine coordinates: minor radius r,
+     height y, and a bearing offset from the centre of the cutaway wedge —
+     so a label stays welded to its component as the model turns.
+     `id` matches the material id the shader uses to pick out the part
+     (20 is the plasma itself, which is volumetric, not a surface).       */
+  /* Negative bearings put the callouts on the right-hand cut face, clear of
+     the description panel on the left.  Heights are spread so the leaders
+     do not pile up on top of one another.                               */
+  const PARTS = [
+    { id: 5,  r: 3.62, y: 2.05, dphi: -1.02, name: 'Плазма камерасы',
+      desc: 'Тор тәрізді вакуумдық камера, 10⁻⁶ Па' },
+    { id: 6,  r: 3.22, y: -1.25, dphi: -1.02, name: 'Бірінші қабырға',
+      desc: 'Бериллий панельдер, нейтронды сіңіреді' },
+    { id: 3,  r: 4.92, y: -0.85, dphi: -1.16, name: 'Полоидалды магнит',
+      desc: 'Плазманың пішіні мен орнын реттейді' },
+    { id: 1,  r: 5.32, y: 3.05, dphi: -1.32, name: 'Криостат',
+      desc: 'Магниттерді 4.5 K-де ұстайтын қаптама' },
+    { id: 2,  r: 4.30, y: 0.35, dphi: -1.02, name: 'Тороидалды магнит',
+      desc: '18 D-пішінді Nb₃Sn катушка, 5.3 Тл' },
+    { id: 20, r: 2.28, y: 0.55, dphi: -1.02, name: 'Плазма',
+      desc: '150 млн °C, дейтерий–тритий' }
+  ];
+
+  let anIndex = -1, anPinned = -1;
+  const anList = $('an-list');
+  const anMarkers = $('an-markers');
+  PARTS.forEach((part, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = '<span><b>' + part.name + '</b><span>' + part.desc + '</span></span>';
+    li.addEventListener('mouseenter', () => setHighlight(i));
+    li.addEventListener('click', () => pinHighlight(anPinned === i ? -1 : i));
+    anList.appendChild(li);
+    part.li = li;
+
+    const m = document.createElement('div');
+    m.className = 'an-marker';
+    m.textContent = String(i + 1);
+    anMarkers.appendChild(m);
+    part.marker = m;
+  });
+  anList.addEventListener('mouseleave', () => setHighlight(anPinned));
+
+  function setHighlight(i) {
+    anIndex = i;
+    view.highlight = i >= 0 ? PARTS[i].id : 0;
+    PARTS.forEach((p, k) => {
+      p.li.classList.toggle('active', k === i);
+      p.marker.classList.toggle('active', k === i);
+      p.marker.classList.toggle('dim', i >= 0 && k !== i);
+    });
+  }
+  function pinHighlight(i) { anPinned = i; setHighlight(i); }
+
+  /* Project every anchor to screen space each frame. */
+  function updateMarkers() {
+    const W = window.innerWidth, H = window.innerHeight;
+    const base = Math.PI * 0.5 - renderer.shot.cutCenter;
+    for (const p of PARTS) {
+      const phi = base + p.dphi;
+      const s = renderer.project(
+        [Math.cos(phi) * p.r, p.y, Math.sin(phi) * p.r], W, H);
+      const m = p.marker;
+      if (!s || s.ang > 0.94) { m.classList.add('off'); continue; }
+      m.classList.remove('off');
+      m.style.left = s.x.toFixed(1) + 'px';
+      m.style.top = s.y.toFixed(1) + 'px';
+    }
+  }
+
   function layout() {
     renderer.resize(window.innerWidth, window.innerHeight);
     hud.resize();
@@ -90,10 +161,24 @@
   }
 
   function startFlight() {
-    if (sim.stage !== 'landing') return;
+    if (sim.stage !== 'landing' && sim.stage !== 'anatomy') return;
+    pinHighlight(-1);
     setStage('flight');
     renderer.startFlight();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function showAnatomy() {
+    if (sim.stage !== 'landing') return;
+    setStage('anatomy');
+    renderer.toAnatomy();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function leaveAnatomy() {
+    pinHighlight(-1);
+    setStage('landing');
+    renderer.toLanding();
   }
 
   function finishFlight() {
@@ -109,6 +194,9 @@
   $('btn-start').addEventListener('click', startFlight);
   $('btn-start-2').addEventListener('click', startFlight);
   $('nav-launch').addEventListener('click', startFlight);
+  $('btn-anatomy').addEventListener('click', showAnatomy);
+  $('an-back').addEventListener('click', leaveAnatomy);
+  $('an-start').addEventListener('click', startFlight);
   $('btn-skip').addEventListener('click', () => {
     renderer.shot.flight = 1;
     renderer.shot.mode = 'interior';
@@ -140,7 +228,7 @@
 
   canvas.addEventListener('wheel', e => {
     /* on the landing page the wheel belongs to the document, not the model */
-    if (sim.stage !== 'sim') return;
+    if (sim.stage !== 'sim' && sim.stage !== 'anatomy') return;
     e.preventDefault();
     renderer.userZoom = Math.max(-1.05, Math.min(0.9,
       renderer.userZoom + e.deltaY * 0.0012));
@@ -235,13 +323,28 @@
     const cur = e.currentTarget.dataset.q;
     setQuality(QLIST[(QLIST.indexOf(cur) + 1) % QLIST.length]);
   });
+  /* the renderer can step the preset down on its own if it cannot hold
+     frame rate — keep the button label honest when it does */
+  renderer.onQualityChange = q => {
+    const btn = $('b-quality');
+    btn.dataset.q = q;
+    btn.textContent = 'САПА: ' + QNAME[q];
+    phys.pushAlarm('САПА АВТОМАТТЫ ТӨМЕНДЕДІ: ' + QNAME[q], 'warn');
+  };
 
   /* ------------------------------------------------------- keyboard ----- */
   window.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT') return;
     const k = e.key.toLowerCase();
-    if (k === 'enter' && sim.stage === 'landing') { startFlight(); return; }
-    if (k === 'escape' && sim.stage === 'sim') { exitToLanding(); return; }
+    if (k === 'enter' && (sim.stage === 'landing' || sim.stage === 'anatomy')) {
+      startFlight(); return;
+    }
+    if (k === 'escape') {
+      if (sim.stage === 'sim') exitToLanding();
+      else if (sim.stage === 'anatomy') leaveAnatomy();
+      return;
+    }
+    if (k === 'a' && sim.stage === 'landing') { showAnatomy(); return; }
     if (sim.stage !== 'sim') return;
     switch (k) {
       case 'h': hud.toggle(); break;
@@ -315,6 +418,7 @@
     }
 
     renderer.render(phys, t, dt, view);
+    if (sim.stage === 'anatomy') updateMarkers();
     /* Keep filling the diagnostic history during the landing and flight so
        the charts already have context the moment the operator arrives. */
     if (sim.stage === 'sim') hud.update(phys, simDt, t);
@@ -325,7 +429,8 @@
       labelAcc = 0; syncSliders(); syncLabels();
     }
 
-    renderer.adapt(performance.now() - now, window.innerWidth, window.innerHeight);
+    /* the real frame delta, not the JS render time — GPU work is async */
+    renderer.adapt(raw * 1000, window.innerWidth, window.innerHeight);
   }
 
   /* ------------------------------------------------------------ start --- */
@@ -333,9 +438,20 @@
     layout();
     /* give the landing shot a plasma that is already burning */
     for (let i = 0; i < 3400; i++) phys.step(0.01);
+    /* size the renderer to whatever this GPU can actually sustain */
+    try {
+      const r = renderer.probe(phys, window.innerWidth, window.innerHeight);
+      const btn = $('b-quality');
+      btn.dataset.q = r.quality;
+      btn.textContent = 'САПА: ' + QNAME[r.quality];
+      renderer.toLanding();
+    } catch (e) { /* probing is best-effort */ }
+    hud.resize();
     last = performance.now();
     requestAnimationFrame(frame);
   });
 
-  window.SIM = { phys, renderer, hud, sim, view, startFlight, exitToLanding };
+  window.SIM = { phys, renderer, hud, sim, view, PARTS,
+                 startFlight, exitToLanding, showAnatomy, leaveAnatomy,
+                 setHighlight, updateMarkers };
 })();

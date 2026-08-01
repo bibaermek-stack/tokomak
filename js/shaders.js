@@ -25,6 +25,12 @@ void main(){
 }`;
 
   const NOISE = `
+/* pow(x, 2.0) with a possibly-negative base is undefined in GLSL and is
+   compiled as exp2(n*log2(x)) even when it is defined — both a correctness
+   and a speed problem in the inner loop.  Use plain multiplies. */
+float sq(float x){ return x*x; }
+float cube(float x){ return x*x*x; }
+float pow5(float x){ float t = x*x; return t*t*x; }
 float hash11(float p){ p = fract(p*0.1031); p *= p+33.33; p *= p+p; return fract(p); }
 float hash13(vec3 p3){
   p3 = fract(p3 * 0.1031);
@@ -41,14 +47,12 @@ float vnoise(vec3 x){
   return mix(mix(mix(n000,n100,f.x), mix(n010,n110,f.x), f.y),
              mix(mix(n001,n101,f.x), mix(n011,n111,f.x), f.y), f.z);
 }
+float fbm2(vec3 p){
+  return 0.5*vnoise(p) + 0.25*vnoise(p*2.03);
+}
 float fbm3(vec3 p){
   float a = 0.5, s = 0.0;
   for(int i=0;i<3;i++){ s += a*vnoise(p); p *= 2.03; a *= 0.5; }
-  return s;
-}
-float fbm4(vec3 p){
-  float a = 0.5, s = 0.0;
-  for(int i=0;i<4;i++){ s += a*vnoise(p); p *= 2.07; a *= 0.5; }
   return s;
 }`;
 
@@ -85,6 +89,9 @@ uniform float uHmode;
 uniform int   uSteps;        // volumetric march steps
 uniform int   uSceneSteps;   // SDF march steps
 uniform int   uLights;       // ring-light samples
+uniform int   uAOSteps;      // ambient occlusion taps (0 = off)
+uniform float uDetail;       // 1 = extra plasma noise octave
+uniform float uHighlight;    // material id to emphasise (0 = none)
 uniform float uFieldLines;
 uniform float uParticles;
 uniform float uCut;          // 0..1 cutaway wedge opening
@@ -261,8 +268,10 @@ vec3 calcNormal(vec3 p){
 }
 
 float calcAO(vec3 p, vec3 n){
+  if(uAOSteps <= 0) return 1.0;
   float occ = 0.0, sca = 1.0;
   for(int i=0;i<5;i++){
+    if(i >= uAOSteps) break;
     float h = 0.02 + 0.14*float(i);
     float d = mapScene(p + n*h).x;
     occ += (h - d) * sca;
@@ -295,8 +304,18 @@ float divertorLegs(float r, float y){
   return min(d1*1.35, d2);
 }
 
-vec4 plasma(vec3 p){
-  if(uShowPlasma < 0.5) return vec4(0.0);
+/* Conservative lower bound on the distance from p to anything that emits.
+   fluxRho measures in a metric that compresses the vertical direction by
+   the elongation, so the flux-space distance never overstates the true
+   Euclidean one — which is exactly what a sphere trace needs.           */
+float plasmaSkip(vec3 p, out float rho, out float th, out float dleg){
+  float r = length(p.xz);
+  rho  = fluxRho(p, th);
+  dleg = divertorLegs(r, p.y);
+  return min((rho - 1.34) * AMIN * 0.9, dleg - 0.42);
+}
+
+vec4 plasmaAt(vec3 p, float rho, float th, float dleg){
   float r   = length(p.xz);
   float phi = atan(p.z, p.x);
 
@@ -306,15 +325,21 @@ vec4 plasma(vec3 p){
     if(abs(mod(phi - uCutCenter + PI + TAU, TAU) - PI) < hw) return vec4(0.0);
   }
 
-  float th;
-  float rho = fluxRho(p, th);
-  if(rho > 1.8 && p.y > -1.0) return vec4(0.0);
-
   float outb = smoothstep(-0.2, 0.9, cos(th));
-  vec3 tp = vec3(phi*2.6 - uRot*1.4, th*2.2 + uRot*0.35, rho*4.0 - uTime*0.20);
-  float turb = fbm4(tp) - 0.5;
-  vec3 tp2 = vec3(phi*9.0 - uRot*2.1, th*6.5, uTime*0.9);
-  float fil = (fbm3(tp2) - 0.5) * outb;
+  /* Drift-wave turbulence as a short sum of incommensurate sines.  Value
+     noise looks marginally better but costs sixteen hashes per octave, and
+     this runs at every step of the volumetric march — by far the hottest
+     loop in the renderer. */
+  /* Amplitudes are kept below the pedestal width: perturbing rho by more
+     than the shell thickness smears the ring into a haze and the limb
+     brightening that defines the whole image disappears. */
+  float turb = (sin(phi*3.1 + th*2.2 - uRot*1.4)*0.34
+              + sin(phi*5.7 - th*3.9 - uTime*0.55)*0.21
+              + sin(th*7.3 - phi*2.1 + uTime*0.90)*0.13) * 0.55;
+  float fil = 0.0;
+  if(uDetail > 0.5)
+    fil = (sin(phi*9.0 - uRot*2.1 + th*6.5)*0.5 +
+           sin(th*11.0 + phi*4.0 - uTime*1.7)*0.3) * outb * 0.47;
 
   float amp = uInstab * (0.055 + 0.14*uDisrupt);
   float rhoT = rho * (1.0 + amp*turb + amp*0.9*fil*smoothstep(0.55,1.05,rho));
@@ -322,10 +347,15 @@ vec4 plasma(vec3 p){
   /* A narrow emission shell is what produces limb brightening: the ring is
      bright because a tangential ray travels far inside it, while a ray
      crossing it head-on barely clips it.  Widening this flattens the shot. */
-  float pedW = mix(0.082, 0.048, uHmode);
-  float edge = exp(-pow((rhoT - 0.978)/pedW, 2.0)) * 1.45;
+  /* Level of detail for the emission shell.  At low step counts a 5 cm
+     shell cannot be resolved along a 6 m chord, so it is broadened and its
+     amplitude divided by the same factor — the line integral through it,
+     which is what sets the ring brightness, is preserved.               */
+  float widen = uDetail > 0.5 ? 1.0 : 1.9;
+  float pedW = mix(0.082, 0.048, uHmode) * widen;
+  float edge = exp(-sq((rhoT - 0.978)/pedW)) * 1.45 / widen;
   float core = exp(-rhoT*rhoT*1.65) * (0.05 + 0.15*uIgnite + 0.40*uSaw);
-  float sol  = exp(-pow((rhoT - 1.09)/0.085, 2.0)) * 0.18;
+  float sol  = exp(-sq((rhoT - 1.09)/0.085)) * 0.18;
   float bound = 1.0 - smoothstep(1.06, 1.30, rhoT);
   edge *= bound; sol *= bound; core *= bound;
   /* brightest near the X-point, faintest at the crown */
@@ -333,10 +363,9 @@ vec4 plasma(vec3 p){
   /* the high-field (inboard) side radiates far less than the outboard side */
   edge *= 0.34 + 0.80*smoothstep(-0.95, 0.55, cos(th));
 
-  float dleg = divertorLegs(r, p.y);
-  float div  = exp(-pow(dleg/0.135, 2.0)) * (1.0 + 3.2*uElm);
-  float strike = exp(-pow((p.y + 2.04)/0.16, 2.0)) *
-                 exp(-pow((abs(r - R0) - 0.62)/0.42, 2.0)) * 1.5;
+  float div  = exp(-sq(dleg/0.135)) * (1.0 + 3.2*uElm);
+  float strike = exp(-sq((p.y + 2.04)/0.16)) *
+                 exp(-sq((abs(r - R0) - 0.62)/0.42)) * 1.5;
 
   float ripple = 1.0 + 0.035*cos(phi*18.0 + 0.4) * smoothstep(0.6, 1.2, rho);
   float kill = 1.0 - 0.55*uDisrupt*step(0.5, hash11(floor(uTime*22.0)+floor(phi*3.0)));
@@ -353,7 +382,7 @@ vec4 plasma(vec3 p){
 
   if(uElm > 0.001){
     float elmF = fbm3(vec3(phi*7.0, th*3.0, uTime*6.0));
-    float elmShell = exp(-pow((rhoT - 1.03)/0.15, 2.0)) * outb;
+    float elmShell = exp(-sq((rhoT - 1.03)/0.15)) * outb;
     col += vec3(1.0,0.55,0.85) * uElm * elmShell * (0.5 + elmF) * 3.2;
   }
   if(uNbi > 0.01){
@@ -364,28 +393,30 @@ vec4 plasma(vec3 p){
       vec3 w  = p - bo;
       float h = clamp(dot(w,bd), 0.0, 4.4);
       float d = length(w - bd*h);
-      col += vec3(0.55,0.85,1.00) * uNbi * exp(-pow(d/0.13,2.0)) * exp(-h*0.55) * 1.5;
+      col += vec3(0.55,0.85,1.00) * uNbi * exp(-sq(d/0.13)) * exp(-h*0.55) * 1.5;
     }
   }
   if(uRf > 0.01){
-    float res = exp(-pow((r - (R0 - 0.42))/0.085, 2.0)) *
-                exp(-pow(p.y/1.05, 2.0)) * step(rho, 1.0);
+    float res = exp(-sq((r - (R0 - 0.42))/0.085)) *
+                exp(-sq(p.y/1.05)) * step(rho, 1.0);
     col += vec3(0.45,1.00,0.95)*uRf*res*0.55*(0.7+0.3*sin(uTime*30.0));
   }
   if(uFieldLines > 0.01){
     float hel = cos(3.0*th - 2.0*phi + uRot*0.9);
-    float band = exp(-pow((rho - 0.72)/0.05, 2.0));
+    float band = exp(-sq((rho - 0.72)/0.05));
     col += vec3(0.40,0.95,1.00)*uFieldLines*band*smoothstep(0.90,1.0,hel)*2.2;
   }
   if(uParticles > 0.01){
     float sp = hash11(floor(phi*22.0) + floor(th*9.0)*17.0);
     float trail = fract(phi*3.5 + uTime*(0.6+sp*1.8) + sp*10.0);
-    float band = exp(-pow((rho - (0.30+sp*0.65))/0.035, 2.0));
+    float band = exp(-sq((rho - (0.30+sp*0.65))/0.035));
     col += vec3(0.85,0.95,1.00)*uParticles*band*
-           pow(max(0.0,1.0-trail*6.0),3.0)*1.6;
+           cube(max(0.0,1.0-trail*6.0))*1.6;
   }
 
   float ext = (edge + sol + core*0.5) * (0.03 + 0.09*uDens);
+  /* anatomy highlight: id 20 is the plasma itself */
+  if(uHighlight > 0.5) col *= (abs(uHighlight - 20.0) < 0.1) ? 1.7 : 0.30;
   return vec4(col * uEmis * 0.60, ext);
 }
 
@@ -442,7 +473,7 @@ vec3 lightPoint(vec3 p, vec3 n, vec3 v, vec3 lp, vec3 lc, float rough, float met
   float D = a2/(PI*dnm*dnm);
   float k = a*0.5;
   float G = (ndl/(ndl*(1.0-k)+k)) * (ndv/(ndv*(1.0-k)+k));
-  float F = 0.04 + 0.96*pow(1.0 - max(dot(h,v),0.0), 5.0);
+  float F = 0.04 + 0.96*pow5(1.0 - max(dot(h,v),0.0));
   vec3 spec = vec3(D*G*F/(4.0*ndv*ndl + 1e-4));
   vec3 diff = alb*(1.0-metal)/PI;
   return (diff + spec) * lc * ndl / (0.55 + d2*0.75);
@@ -460,26 +491,34 @@ vec3 lightDir(vec3 n, vec3 v, vec3 ld, vec3 lc, float rough, float metal, vec3 a
   float D = a2/(PI*dnm*dnm);
   float k = a*0.5;
   float G = (ndl/(ndl*(1.0-k)+k)) * (ndv/(ndv*(1.0-k)+k));
-  float F = 0.04 + 0.96*pow(1.0 - max(dot(h,v),0.0), 5.0);
+  float F = 0.04 + 0.96*pow5(1.0 - max(dot(h,v),0.0));
   return (alb*(1.0-metal)/PI + vec3(D*G*F/(4.0*ndv*ndl+1e-4))) * lc * ndl;
 }
 
 vec3 ringLighting(vec3 p, vec3 n, vec3 v, float rough, float metal, vec3 alb){
   vec3 acc = vec3(0.0);
-  float N = float(uLights);
+  /* far from the torus the ring reads as a single soft source, so a coarse
+     sampling is indistinguishable and much cheaper */
+  int nl = dot(p, p) > 20.0 ? min(uLights, 5) : uLights;
+  float N = float(nl);
+  /* Rotate the sample set by a per-pixel offset.  Without this a coarse
+     ring shows as scalloped banding on the wall; with it the error becomes
+     noise, which the bloom and grain absorb completely. */
+  float jit = hash13(vec3(gl_FragCoord.xy, 7.3));
   vec3 cMid = mix(vec3(0.90,0.18,0.95), vec3(1.00,0.35,0.88), uTemp);
   vec3 cDiv = vec3(1.00,0.58,0.90);
   vec3 cTop = vec3(0.42,0.46,1.00);
   float e = uEmis * (1.0 + 1.6*uElm) * uShowPlasma;
   for(int i=0;i<48;i++){
-    if(i >= uLights) break;
-    float a = (float(i)+0.5)/N * TAU + uRot*0.03;
+    if(i >= nl) break;
+    float a = (float(i)+jit)/N * TAU + uRot*0.03;
     vec2 cs = vec2(cos(a), sin(a));
     float wob = 0.10*sin(a*4.0 + uTime*1.3);
-    acc += lightPoint(p,n,v, vec3(cs.x*(R0+0.55), 0.10+wob, cs.y*(R0+0.55)),
-                      cMid*e*1.00, rough, metal, alb);
-    acc += lightPoint(p,n,v, vec3(cs.x*(R0-0.60), -0.05-wob, cs.y*(R0-0.60)),
-                      cMid*e*0.55, rough, metal, alb);
+    /* one merged mid-plane ring instead of an inboard/outboard pair — at
+       these radii the two are indistinguishable and this is the hottest
+       per-pixel loop on the surface path */
+    acc += lightPoint(p,n,v, vec3(cs.x*(R0+0.18), 0.06+wob, cs.y*(R0+0.18)),
+                      cMid*e*1.55, rough, metal, alb);
     acc += lightPoint(p,n,v, vec3(cs.x*1.92, -1.96, cs.y*1.92),
                       cDiv*e*2.10, rough, metal, alb);
     acc += lightPoint(p,n,v, vec3(cs.x*2.25, 1.30, cs.y*2.25),
@@ -509,18 +548,47 @@ void main(){
   vec3 rd = uCamMat * vec3(dirxy*sin(ang), -cos(ang));
   vec3 ro = uCamPos;
 
-  /* ---------------- SDF march --------------------------------------- */
-  float t = 0.02;
+  /* ---------------- SDF march ---------------------------------------
+     The whole machine fits inside r < 6.0, |y| < 5.0.  Clipping the ray to
+     that box first means rays that miss it cost nothing at all, which is
+     most of the frame on the exterior shots.                            */
+  float far = 26.0;
+  float t = 0.02, tEnd = far;
+  {
+    const float BR = 6.0, BH = 5.0;
+    float t0 = 0.0, t1 = far;
+    float qa = dot(rd.xz, rd.xz);
+    if(qa > 1e-6){
+      float qb = 2.0*dot(ro.xz, rd.xz);
+      float qc = dot(ro.xz, ro.xz) - BR*BR;
+      float disc = qb*qb - 4.0*qa*qc;
+      if(disc <= 0.0){ t0 = 1.0; t1 = 0.0; }
+      else {
+        float sd = sqrt(disc);
+        t0 = max(t0, (-qb - sd)/(2.0*qa));
+        t1 = min(t1, (-qb + sd)/(2.0*qa));
+      }
+    } else if(dot(ro.xz, ro.xz) > BR*BR){ t0 = 1.0; t1 = 0.0; }
+    if(abs(rd.y) > 1e-6){
+      float ta = (-BH - ro.y)/rd.y, tb = (BH - ro.y)/rd.y;
+      t0 = max(t0, min(ta, tb));
+      t1 = min(t1, max(ta, tb));
+    } else if(abs(ro.y) > BH){ t0 = 1.0; t1 = 0.0; }
+    t = max(0.02, t0);
+    tEnd = t1;
+  }
+
   float id = 0.0;
   bool hit = false;
-  float far = 26.0;
-  for(int i=0;i<256;i++){
-    if(i >= uSceneSteps) break;
-    vec3 p = ro + rd*t;
-    vec2 h = mapScene(p);
-    if(h.x < 0.0009*t + 0.0006){ id = h.y; hit = true; break; }
-    t += h.x * 0.86;
-    if(t > far) break;
+  if(t < tEnd){
+    for(int i=0;i<256;i++){
+      if(i >= uSceneSteps) break;
+      vec3 p = ro + rd*t;
+      vec2 h = mapScene(p);
+      if(h.x < 0.0009*t + 0.0006){ id = h.y; hit = true; break; }
+      t += h.x * 0.86;
+      if(t > tEnd) break;
+    }
   }
 
   vec3 surf = vec3(0.0);
@@ -557,7 +625,7 @@ void main(){
       metal = 0.25;
       ao *= tao;
       if(uHeatMap > 0.5){
-        float load = uQdiv * (0.35 + 0.65*exp(-pow((p.y+1.6)/1.3, 2.0)))
+        float load = uQdiv * (0.35 + 0.65*exp(-sq((p.y+1.6)/1.3)))
                             * (0.6 + 0.4*smoothstep(1.2, 3.4, r));
         alb = heatRamp(load);
         metal = 0.0; rough = 0.75;
@@ -566,7 +634,7 @@ void main(){
     } else if(id == ID_DIV){
       alb = vec3(0.16,0.14,0.13);
       rough = 0.20; metal = 0.75;
-      float strike = exp(-pow((r-(R0+0.52))/0.26,2.0)) + 0.7*exp(-pow((r-(R0-0.86))/0.22,2.0));
+      float strike = exp(-sq((r-(R0+0.52))/0.26)) + 0.7*exp(-sq((r-(R0-0.86))/0.22));
       emis += vec3(1.0,0.42,0.16) * strike * uEmis * uShowPlasma * (0.10 + 0.55*uElm);
       if(uHeatMap > 0.5){ alb = heatRamp(uQdiv*(0.5+0.9*strike)); metal=0.0; emis += alb*0.5; }
     } else if(id == ID_VVO){
@@ -610,6 +678,17 @@ void main(){
       alb *= (1.0 - 0.32*seam);
     }
 
+    /* --- anatomy highlight: lift the named part, mute everything else -- */
+    if(uHighlight > 0.5){
+      if(abs(id - uHighlight) < 0.1){
+        float rim = sq(1.0 - max(dot(n, v), 0.0));
+        alb *= 1.55;
+        emis += vec3(0.30,0.80,1.00) * (0.10 + 0.75*rim);
+      } else {
+        alb *= 0.30;
+      }
+    }
+
     /* --- plasma ring lights (dominant once inside) -------------------- */
     surf = ringLighting(p, n, v, rough, metal, alb) * ao;
 
@@ -639,8 +718,8 @@ void main(){
       float arcSeed = hash11(floor(uTime*13.0)*7.7 + floor(phi*11.0));
       if(arcSeed > 0.985 - 0.05*uElm - 0.35*uDisrupt){
         float ay = hash11(arcSeed*53.0)*2.0-1.0;
-        float arc = exp(-pow((p.y-ay*1.6)/0.05,2.0)) *
-                    exp(-pow((fract(phi*11.0)-0.5)/0.09,2.0));
+        float arc = exp(-sq((p.y-ay*1.6)/0.05)) *
+                    exp(-sq((fract(phi*11.0)-0.5)/0.09));
         surf += vec3(0.75,0.90,1.00)*arc*7.0;
       }
     }
@@ -664,18 +743,38 @@ void main(){
 
   vec3 acc = vec3(0.0);
   float trans = 1.0;
-  float N  = float(uSteps);
-  float dt = max(tmax - tnear, 0.0) / N;
+  /* The emitting shell is only a few centimetres thick, so the step is tied
+     to that rather than to the chord length; empty space is crossed by
+     sphere tracing on plasmaSkip instead of by brute force.              */
+  /* Step bounds are derived from the budget, not fixed.  If the march runs
+     out of iterations before tmax it stops accumulating extinction, the
+     transmittance stays high, and the bright wall behind the plasma bleeds
+     through — which reads as a washed-out frame rather than as noise.
+     Tying both bounds to span/steps guarantees the ray always completes. */
+  float span = tmax - tnear;
+  float avg  = span / float(uSteps);
+  float dtFine   = clamp(avg * 0.55, 0.020, 0.090);
+  float dtCoarse = max(avg * 2.2, 0.12);
+  float dt = dtFine;
   float jitter = hash13(vec3(gl_FragCoord.xy, floor(uTime*60.0)));
   float tv = tnear + dt*jitter;
-  for(int i=0;i<256;i++){
-    if(i >= uSteps || tv >= tmax || trans < 0.004) break;
-    vec4 e = plasma(ro + rd*tv);
-    if(e.a > 1e-5 || e.r+e.g+e.b > 1e-5){
-      acc   += e.rgb * trans * dt;
-      trans *= exp(-e.a * dt * 0.55);
+  if(uShowPlasma > 0.5){
+    for(int i=0;i<256;i++){
+      if(i >= uSteps || tv >= tmax || trans < 0.004) break;
+      vec3 p = ro + rd*tv;
+      float rho, th, dleg;
+      float empty = plasmaSkip(p, rho, th, dleg);
+      if(empty > 0.0){ tv += max(dt, empty); continue; }
+      /* Dense sampling only across the thin emission shell and the divertor
+         legs; the core glow is broad and smooth, so it is integrated with
+         long strides.  Riemann sum uses the step actually taken.          */
+      float dShell = (abs(rho - 0.99) - 0.15) * AMIN * 0.9;
+      float step = clamp(min(dShell, dleg - 0.20) * 0.6, dtFine, dtCoarse);
+      vec4 e = plasmaAt(p, rho, th, dleg);
+      acc   += e.rgb * trans * step;
+      trans *= exp(-e.a * step * 0.55);
+      tv += step;
     }
-    tv += dt;
   }
 
   vec3 col = surf * trans + acc;

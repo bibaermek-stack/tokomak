@@ -16,11 +16,15 @@
 (function (global) {
   'use strict';
 
+  /* A raymarched scene costs per pixel, so device pixel ratio matters far
+     more than any step count: rendering a 1080p screen at dpr 2 is four
+     times the work of dpr 1 for no visible gain on a soft, bloomed image.
+     Each preset therefore caps dpr as well as the internal scale.        */
   const QUALITY = {
-    low:    { scale: 0.55, steps: 56,  scene: 70,  lights: 6,  bloom: 2 },
-    medium: { scale: 0.75, steps: 96,  scene: 100, lights: 10, bloom: 3 },
-    high:   { scale: 1.00, steps: 144, scene: 140, lights: 14, bloom: 3 },
-    ultra:  { scale: 1.00, steps: 208, scene: 200, lights: 20, bloom: 3 }
+    low:    { scale: 0.45, dpr: 1.00, steps: 24, scene: 56,  lights: 4,  ao: 2, bloom: 3 },
+    medium: { scale: 0.60, dpr: 1.00, steps: 36, scene: 72,  lights: 6,  ao: 3, bloom: 3 },
+    high:   { scale: 0.80, dpr: 1.00, steps: 56, scene: 96,  lights: 8,  ao: 3, bloom: 3 },
+    ultra:  { scale: 1.00, dpr: 1.25, steps: 96, scene: 140, lights: 12, ao: 4, bloom: 3 }
   };
 
   /* --------------------------------------------------------------------- */
@@ -92,10 +96,11 @@
       this.hdrFmt = this.floatOK ? gl.RGBA16F : gl.RGBA8;
       this.hdrType = this.floatOK ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
 
-      this.quality = 'high';
-      this.renderScale = QUALITY.high.scale;
+      this.quality = 'medium';
+      this.renderScale = QUALITY.medium.scale;
       this.autoScale = true;
       this.frameMs = 16;
+      this._slow = 0; this._fast = 0;
 
       this.buildQuad();
       this.buildPrograms();
@@ -212,7 +217,7 @@
 
     resize(cssW, cssH) {
       const gl = this.gl;
-      const dpr = Math.min(global.devicePixelRatio || 1, 2);
+      const dpr = Math.min(global.devicePixelRatio || 1, QUALITY[this.quality].dpr);
       const W = Math.max(2, Math.round(cssW * dpr * this.renderScale));
       const H = Math.max(2, Math.round(cssH * dpr * this.renderScale));
       if (W === this.w && H === this.h) return;
@@ -262,7 +267,7 @@
     /*  Shot state machine                                                  */
     /* ------------------------------------------------------------------ */
     startFlight() {
-      if (this.shot.mode !== 'landing') return;
+      if (this.shot.mode !== 'landing' && this.shot.mode !== 'anatomy') return;
       this.shot.mode = 'flight';
       this.shot.flight = 0;
       this._flightYaw0 = this.cam.yaw + this.userYaw;
@@ -276,6 +281,39 @@
       this.cam.autoOrbit = true;
     }
 
+    toAnatomy() {
+      this.shot.mode = 'anatomy';
+      this.shot.flight = 0;
+      this.userYaw = 0; this.userPitch = 0; this.userZoom = 0;
+    }
+
+    /* Project a world point to CSS pixels through the same equidistant
+       fisheye the shader uses.  Returns null when the point falls outside
+       the frame or behind the lens.                                      */
+    project(P, cssW, cssH) {
+      const c = this._camPos, m = this._camMat;
+      if (!c || !m) return null;
+      let d = [P[0] - c[0], P[1] - c[1], P[2] - c[2]];
+      const L = Math.hypot(d[0], d[1], d[2]);
+      if (L < 1e-6) return null;
+      d = [d[0] / L, d[1] / L, d[2] / L];
+      /* camMat is orthonormal, so its inverse is its transpose */
+      const vx = m[0] * d[0] + m[1] * d[1] + m[2] * d[2];
+      const vy = m[3] * d[0] + m[4] * d[1] + m[5] * d[2];
+      const vz = m[6] * d[0] + m[7] * d[1] + m[8] * d[2];
+      const ang = Math.acos(Math.max(-1, Math.min(1, -vz)));
+      const rr = Math.hypot(vx, vy);
+      if (rr < 1e-6) return { x: cssW / 2, y: cssH / 2, dist: L, ang };
+      const k = (ang / this.cam.fov) / rr;
+      const ux = vx * k, uy = vy * k;
+      return {
+        x: ux * cssH + cssW / 2,
+        y: cssH / 2 - uy * cssH,
+        dist: L,
+        ang: ang / this.cam.fov      /* 1.0 = frame edge vertically */
+      };
+    }
+
     updateShot(dt, t) {
       const s = this.shot;
       if (s.mode === 'flight') {
@@ -284,13 +322,19 @@
       }
       const c = this.cam;
 
-      if (s.mode === 'landing') {
+      if (s.mode === 'landing' || s.mode === 'anatomy') {
         const k = samplePath(0, this._pathOut);
-        c.radius = k.radius + this.userZoom;
         c.height = k.height; c.pitch = k.pitch; c.fov = k.fov;
         s.cut = k.cut; s.ext = k.ext;
-        /* gentle drift that keeps the cutaway facing the lens */
-        c.yaw = s.cutCenter + Math.sin(t * 0.09) * 0.34;
+        if (s.mode === 'anatomy') {
+          /* pulled in a little and turning slowly, so the callout leaders
+             stay readable rather than sweeping across the frame */
+          c.radius = k.radius * 0.92 + this.userZoom;
+          c.yaw = s.cutCenter + Math.sin(t * 0.045) * 0.20;
+        } else {
+          c.radius = k.radius + this.userZoom;
+          c.yaw = s.cutCenter + Math.sin(t * 0.09) * 0.34;
+        }
       } else if (s.mode === 'flight') {
         const e = easeFlight(s.flight);
         const k = samplePath(e, this._pathOut);
@@ -393,6 +437,10 @@
       gl.uniform1i(S.u.uSteps, Q.steps);
       gl.uniform1i(S.u.uSceneSteps, Q.scene);
       gl.uniform1i(S.u.uLights, Q.lights);
+      gl.uniform1i(S.u.uAOSteps, Q.ao);
+      gl.uniform1f(S.u.uDetail,
+        this.detailOverride != null ? this.detailOverride : (Q.steps >= 56 ? 1 : 0));
+      gl.uniform1f(S.u.uHighlight, view.highlight || 0);
       gl.uniform1f(S.u.uFieldLines, view.fieldLines ? 1 : 0);
       gl.uniform1f(S.u.uParticles, view.particles ? 1 : 0);
       gl.uniform1f(S.u.uCut, cut);
@@ -473,15 +521,71 @@
       this.drawQuad();
     }
 
+    /* One-off GPU probe: time a few worst-case (interior) frames and pick a
+       starting preset.  readPixels forces a pipeline flush, so unlike a bare
+       performance.now() around the draw calls this actually waits for the
+       GPU.  Costs ~150 ms once, at boot, and saves guessing.             */
+    probe(phys, cssW, cssH) {
+      const gl = this.gl;
+      const px = new Uint8Array(4);
+      const savedMode = this.shot.mode, savedCut = this.shot.cut,
+            savedExt = this.shot.ext, savedAuto = this.autoScale;
+      this.autoScale = false;
+      this.setQuality('medium');
+      this.resize(cssW, cssH);
+      this.shot.mode = 'interior';
+      this.updateShot(0, 0);
+      const view = { plasma: true, coils: true };
+      const sync = () => {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      };
+      this.render(phys, 0, 0.016, view); sync();
+      const t0 = performance.now();
+      for (let i = 0; i < 3; i++) this.render(phys, i * 0.016, 0.016, view);
+      sync();
+      const ms = (performance.now() - t0) / 3;
+
+      /* thresholds are on a medium-preset frame and aim for ~60 fps headroom */
+      const q = ms > 32 ? 'low' : ms > 17 ? 'medium' : ms > 9 ? 'high' : 'ultra';
+      this.shot.mode = savedMode; this.shot.cut = savedCut; this.shot.ext = savedExt;
+      this.autoScale = savedAuto;
+      this.setQuality(q);
+      this.resize(cssW, cssH);
+      return { ms, quality: q };
+    }
+
+    /* Adaptive resolution, then adaptive quality.  frameMs must be the real
+       frame-to-frame delta — GPU work is asynchronous, so timing the JS
+       render call measures almost nothing.                               */
     adapt(frameMs, cssW, cssH) {
-      this.frameMs += (frameMs - this.frameMs) * 0.08;
+      this.frameMs += (frameMs - this.frameMs) * 0.10;
       if (!this.autoScale) return;
       const base = QUALITY[this.quality].scale;
+      const minScale = base * 0.5;
       let s = this.renderScale;
-      if (this.frameMs > 26 && s > base * 0.55) s -= 0.03;
-      else if (this.frameMs < 15 && s < base) s += 0.01;
+
+      if (this.frameMs > 30) { this._slow++; this._fast = 0; s -= 0.035; }
+      else if (this.frameMs < 19) { this._fast++; this._slow = 0; if (s < base) s += 0.012; }
+      else { this._slow = 0; this._fast = 0; }
+
+      /* already at the resolution floor and still dropping frames: step the
+         whole preset down rather than degrading resolution further */
+      if (this._slow > 45 && s <= minScale + 1e-3) {
+        const order = ['ultra', 'high', 'medium', 'low'];
+        const i = order.indexOf(this.quality);
+        if (i >= 0 && i < order.length - 1) {
+          this._slow = 0;
+          this.setQuality(order[i + 1]);
+          if (this.onQualityChange) this.onQualityChange(this.quality);
+          this.resize(cssW, cssH);
+          return;
+        }
+      }
+
+      s = Math.max(minScale, Math.min(base, s));
       if (Math.abs(s - this.renderScale) > 0.004) {
-        this.renderScale = Math.max(0.4, Math.min(base, s));
+        this.renderScale = s;
         this.w = 0;
         this.resize(cssW, cssH);
       }

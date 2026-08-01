@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tokamak",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["tools/devserver.py", "8777"],
+      "port": 8777
+    }
+  ]
+}

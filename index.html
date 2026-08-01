@@ -40,12 +40,19 @@
   </div>
 
   <div class="hero-bottom">
-    <button id="btn-start" class="cta">
-      <span class="cta-glow" aria-hidden="true"></span>
-      <span class="cta-ico" aria-hidden="true">▶</span>
-      <span class="cta-txt">Симуляцияны бастау</span>
-      <span class="cta-sub">Плазма ядросына 7 секундтық ұшу</span>
-    </button>
+    <div class="hero-buttons">
+      <button id="btn-start" class="cta">
+        <span class="cta-glow" aria-hidden="true"></span>
+        <span class="cta-ico" aria-hidden="true">▶</span>
+        <span class="cta-txt">Симуляцияны бастау</span>
+        <span class="cta-sub">Плазма ядросына 7 секундтық ұшу</span>
+      </button>
+      <button id="btn-anatomy" class="cta alt">
+        <span class="cta-ico" aria-hidden="true">⊕</span>
+        <span class="cta-txt">Құрылымын көру</span>
+        <span class="cta-sub">Тораптары белгіленген 3D модель</span>
+      </button>
+    </div>
     <div class="hero-stats">
       <div><b>500</b><i>МВт синтез қуаты</i></div>
       <div><b>150</b><i>миллион °C</i></div>
@@ -206,6 +213,22 @@
   </footer>
 </main>
 
+<!-- ==================================================== anatomy overlay -->
+<section id="anatomy-view">
+  <div class="an-panel">
+    <p class="eyebrow">ҚҰРЫЛЫМЫ</p>
+    <h2>Токамактың негізгі тораптары</h2>
+    <p class="an-hint">Тізімнен торапты таңдаңыз — модельде ерекшеленеді.
+      Айналдыру үшін модельді сүйреңіз.</p>
+    <ol class="an-list" id="an-list"></ol>
+    <div class="an-actions">
+      <button id="an-back" class="ghost">◂ Артқа</button>
+      <button id="an-start" class="ghost primary">▶ Симуляцияны бастау</button>
+    </div>
+  </div>
+  <div id="an-markers" aria-hidden="true"></div>
+</section>
+
 <!-- ===================================================== flight overlay -->
 <div id="flight-ui">
   <div class="fl-bar"><i></i></div>
@@ -282,7 +305,7 @@
           <button id="b-xsec">КӨЛДЕНЕҢ ҚИМА</button>
         </div>
         <div class="btn-row">
-          <button id="b-quality" data-q="high">САПА: ЖОҒАРЫ</button>
+          <button id="b-quality" data-q="medium">САПА: ОРТА</button>
           <button id="b-orbit" class="on">АЙНАЛУ</button>
           <button id="b-exit">◂ ШЫҒУ</button>
         </div>

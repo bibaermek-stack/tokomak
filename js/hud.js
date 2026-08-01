@@ -449,7 +449,7 @@
       }
     },
     {
-      id: 'xsec', title: 'Плазманың көлденең қимасы', unit: 'ψ', slot: 'left', h: 176,
+      id: 'xsec', title: 'Плазманың көлденең қимасы', unit: 'ψ', slot: 'left', h: 176, every: 2,
       draw(ctx, w, h, P) {
         ctx.save();
         const cx = w * 0.5, cy = h * 0.52 + 6;
@@ -592,7 +592,7 @@
       }
     },
     {
-      id: 'coils', title: 'Асқын өткізгіш катушка тогы', unit: 'кА', slot: 'right', h: 112,
+      id: 'coils', title: 'Асқын өткізгіш катушка тогы', unit: 'кА', slot: 'right', h: 112, every: 2,
       draw(ctx, w, h, P) {
         const pad = 8;
         const bw = (w - pad * 2) / P.M.nTF;
@@ -689,7 +689,7 @@
       }
     },
     {
-      id: 'heatflux', title: 'Дивертордағы жылу ағыны', unit: 'МВт·м⁻²', slot: 'right', h: 104,
+      id: 'heatflux', title: 'Дивертордағы жылу ағыны', unit: 'МВт·м⁻²', slot: 'right', h: 104, every: 3,
       draw(ctx, w, h, P, H, t) {
         const b = { x: 30, y: 24, w: w - 46, h: h - 42 };
         const NX = 44, NY = 20;
@@ -760,7 +760,7 @@
 
     /* -------------------------------------------------------- BOTTOM ---- */
     {
-      id: 'spectro', title: 'Te(ρ,t) жылу картасы', unit: 'кэВ', slot: 'bottom', h: 132, flex: 1.35,
+      id: 'spectro', title: 'Te(ρ,t) жылу картасы', unit: 'кэВ', slot: 'bottom', h: 132, flex: 1.35, every: 3,
       draw(ctx, w, h, P, H) {
         const b = { x: 26, y: 22, w: w - 42, h: h - 46 };
         if (!this._img) {
@@ -803,7 +803,7 @@
       }
     },
     {
-      id: 'fieldlines', title: 'Магнит өрісі сызықтары', unit: 'q(ρ)', slot: 'bottom', h: 132, flex: 1,
+      id: 'fieldlines', title: 'Магнит өрісі сызықтары', unit: 'q(ρ)', slot: 'bottom', h: 132, flex: 1, every: 2,
       draw(ctx, w, h, P, H, t) {
         const cx = w * 0.5, cy = h * 0.52 + 4;
         const R = Math.min(w * 0.40, (h - 40) * 0.86);
@@ -928,7 +928,7 @@
       }
     },
     {
-      id: 'status', title: 'Реактордың күйі', unit: '', slot: 'bottom', h: 132, flex: 1.1,
+      id: 'status', title: 'Реактордың күйі', unit: '', slot: 'bottom', h: 132, flex: 1.1, every: 3,
       draw(ctx, w, h, P, H, t) {
         const pad = 8;
         let y = 24;
@@ -1025,7 +1025,7 @@
     }
 
     resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       this.panels.forEach(p => {
         const r = p.el.getBoundingClientRect();
         const W = Math.max(2, Math.round(r.width)), Hh = Math.max(2, Math.round(r.height));
@@ -1041,10 +1041,16 @@
       this.hist.push(P, dt);
       if (!this.visible) return;
       this._acc += dt;
-      if (this._acc < 1 / 34) return;      /* redraw the dashboard at ~34 Hz */
+      if (this._acc < 1 / 24) return;      /* redraw the dashboard at ~24 Hz */
       this._acc = 0;
+      this.tick = (this.tick || 0) + 1;
       this.resize();
+      /* Panels that push a lot of pixels per redraw (the spectrogram's
+         per-texel loop, the heat-flux cell grid) run at a fraction of the
+         rate — they carry slow-moving data and nobody can tell.          */
       this.panels.forEach(p => {
+        const every = p.spec.every || 1;
+        if (this.tick % every !== 0) return;
         const ctx = p.ctx;
         ctx.setTransform(p.dpr, 0, 0, p.dpr, 0, 0);
         G.frame(ctx, p.w, p.h, p.spec.title, p.spec.unit);
