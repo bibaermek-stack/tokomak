@@ -20,6 +20,10 @@
      more than any step count: rendering a 1080p screen at dpr 2 is four
      times the work of dpr 1 for no visible gain on a soft, bloomed image.
      Each preset therefore caps dpr as well as the internal scale.        */
+  /* Resolution multiplier for exterior shots, where the volumetric march is
+     mostly idle.  Clamped to 1.0 effective scale inside resize(). */
+  const EXT_BOOST = 2.3;
+
   const QUALITY = {
     low:    { scale: 0.45, dpr: 1.00, steps: 24, scene: 56,  lights: 4,  ao: 2, bloom: 3 },
     medium: { scale: 0.60, dpr: 1.00, steps: 36, scene: 72,  lights: 6,  ao: 3, bloom: 3 },
@@ -217,9 +221,17 @@
 
     resize(cssW, cssH) {
       const gl = this.gl;
-      const dpr = Math.min(global.devicePixelRatio || 1, QUALITY[this.quality].dpr);
-      const W = Math.max(2, Math.round(cssW * dpr * this.renderScale));
-      const H = Math.max(2, Math.round(cssH * dpr * this.renderScale));
+      this._cssW = cssW; this._cssH = cssH;
+      const Q = QUALITY[this.quality];
+      const dpr = Math.min(global.devicePixelRatio || 1, Q.dpr);
+      /* The exterior shot has almost no volumetric cost — the plasma march
+         only runs through the cutaway — so it can carry a far higher
+         internal resolution than the interior at the same preset.  Without
+         this the machine's panel seams and coil detail get washed out by a
+         scale chosen for the expensive interior view.                    */
+      const eff = Math.min(1.0, this.renderScale * (this._extBoost || 1));
+      const W = Math.max(2, Math.round(cssW * dpr * eff));
+      const H = Math.max(2, Math.round(cssH * dpr * eff));
       if (W === this.w && H === this.h) return;
       this.w = W; this.h = H;
       this.canvas.width = Math.round(cssW * dpr);
@@ -398,6 +410,21 @@
     render(phys, t, dtSec, view) {
       const gl = this.gl;
       const Q = QUALITY[this.quality];
+
+      /* Two resolution regimes, switched once as the camera crosses into the
+         machine.  Kept binary on purpose: every change reallocates the whole
+         framebuffer chain, and one hitch in the middle of a fast move is
+         invisible where four spread along it would not be.               */
+      /* hysteresis, so an interpolated ext that wobbles across the midpoint
+         cannot reallocate the framebuffers twice on the way in */
+      const wasExt = this._extBoost === EXT_BOOST;
+      const wantBoost = (this.shot.ext > (wasExt ? 0.45 : 0.55)) ? EXT_BOOST : 1;
+      if (wantBoost !== this._extBoost) {
+        this._extBoost = wantBoost;
+        this.w = 0;
+        if (this._cssW) this.resize(this._cssW, this._cssH);
+      }
+
       this.cameraBasis(t, dtSec, phys);
 
       const P = phys;
@@ -434,12 +461,23 @@
       gl.uniform1f(S.u.uRf, Math.min(1, (P.Picr + P.Pecr) / 40));
       gl.uniform1f(S.u.uElong, P.M.kappa * 0.95);
       gl.uniform1f(S.u.uHmode, P.hMode ? 1 : 0);
-      gl.uniform1i(S.u.uSteps, Q.steps);
-      gl.uniform1i(S.u.uSceneSteps, Q.scene);
-      gl.uniform1i(S.u.uLights, Q.lights);
-      gl.uniform1i(S.u.uAOSteps, Q.ao);
+      /* The exterior shot spends almost nothing on the volumetric march, so
+         it gets the settings that actually shape how the machine reads —
+         occlusion contact shadows, a smooth ring light and a full-detail
+         SDF — regardless of the preset chosen for the interior. */
+      const ext = this.shot.ext > 0.5;
+      const steps  = Q.steps;
+      const scene  = ext ? Math.max(Q.scene, 120) : Q.scene;
+      const lights = ext ? Math.max(Q.lights, 10) : Q.lights;
+      const ao     = ext ? 5 : Q.ao;
+      const detail = ext ? 1 : (Q.steps >= 56 ? 1 : 0);
+
+      gl.uniform1i(S.u.uSteps, steps);
+      gl.uniform1i(S.u.uSceneSteps, scene);
+      gl.uniform1i(S.u.uLights, lights);
+      gl.uniform1i(S.u.uAOSteps, ao);
       gl.uniform1f(S.u.uDetail,
-        this.detailOverride != null ? this.detailOverride : (Q.steps >= 56 ? 1 : 0));
+        this.detailOverride != null ? this.detailOverride : detail);
       gl.uniform1f(S.u.uHighlight, view.highlight || 0);
       gl.uniform1f(S.u.uFieldLines, view.fieldLines ? 1 : 0);
       gl.uniform1f(S.u.uParticles, view.particles ? 1 : 0);
@@ -540,11 +578,18 @@
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
       };
-      this.render(phys, 0, 0.016, view); sync();
-      const t0 = performance.now();
+      /* Warm up properly: the driver compiles the shader and allocates the
+         framebuffer chain lazily on first draw, so a single warm frame
+         reads far too fast and the probe over-rates the GPU. */
       for (let i = 0; i < 3; i++) this.render(phys, i * 0.016, 0.016, view);
       sync();
-      const ms = (performance.now() - t0) / 3;
+      let ms = 0;
+      for (let round = 0; round < 2; round++) {
+        const t0 = performance.now();
+        for (let i = 0; i < 3; i++) this.render(phys, i * 0.016, 0.016, view);
+        sync();
+        ms = (performance.now() - t0) / 3;   /* keep the settled round */
+      }
 
       /* thresholds are on a medium-preset frame and aim for ~60 fps headroom */
       const q = ms > 32 ? 'low' : ms > 17 ? 'medium' : ms > 9 ? 'high' : 'ultra';
