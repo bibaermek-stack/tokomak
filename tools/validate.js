@@ -74,7 +74,7 @@ const MACHINE_REF = {
            Paux:20, pulse:30,  note:'мыс катушкалар, дивертор' },
   nstx:  { org:'PPPL, Принстон (АҚШ)',                   first:1999, fuel:'D',
            Paux:13, pulse:1.5, note:'сфералық тор, A=1.3' },
-  ktm:   { org:'ҰЯО РК, Курчатов (Қазақстан)',           first:2010, fuel:'D',
+  ktm:   { org:'ҰЯО РК, Курчатов (Қазақстан)',           first:2017, fuel:'D',
            Paux:7,  pulse:5,   note:'материалтану, дивертор сынағы' }
 };
 
