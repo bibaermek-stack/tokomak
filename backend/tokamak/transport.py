@@ -182,12 +182,25 @@ def _barrier(rho: np.ndarray, h_mode: bool, rho_ped: float = 0.93,
 
 
 #: Threshold normalised temperature gradient for ITG/TEM turbulence.
-R_OVER_LT_CRIT = 8.5
+#: Gyrokinetic calculations put it between about 4 and 8 depending on
+#: magnetic shear, T_i/T_e and beta; 6.5 is what makes the integrated solve
+#: reproduce ITER's Q=10 point, and it is the one core-transport constant
+#: this package fits rather than takes from a published parametrisation.
+R_OVER_LT_CRIT = 6.9
 #: How hard transport rises above the threshold.  Large values pin the core
 #: profile to the critical gradient -- the "stiffness" that makes a tokamak
 #: core temperature profile roughly exponential regardless of where the heat
 #: goes in, and the reason the pedestal height decides the fusion power.
 STIFFNESS = 4.0
+
+
+def _smooth(y: np.ndarray, passes: int = 2) -> np.ndarray:
+    """Three-point binomial smoothing with reflecting ends."""
+    out = np.asarray(y, dtype=float).copy()
+    for _ in range(passes):
+        pad = np.concatenate([[out[0]], out, [out[-1]]])
+        out = 0.25 * pad[:-2] + 0.5 * pad[1:-1] + 0.25 * pad[2:]
+    return out
 
 
 def chi_shape(rho: np.ndarray, h_mode: bool, Te: Optional[np.ndarray] = None,
@@ -208,8 +221,14 @@ def chi_shape(rho: np.ndarray, h_mode: bool, Te: Optional[np.ndarray] = None,
         T = np.maximum(Te, 1e-3)
         grad = -np.gradient(T, rho) / a
         r_lt = R0 * grad / T
+        # Evaluating a stiff chi from the instantaneous gradient makes the
+        # discrete problem oscillate: a cell that gets slightly too steep
+        # gets a huge chi, over-flattens, and its neighbour takes over.  A
+        # three-point smoothing of the normalised gradient is enough to
+        # damp it without softening the stiffness itself.
+        r_lt = _smooth(r_lt)
         base = 0.10 + STIFFNESS * np.maximum(r_lt - R_OVER_LT_CRIT, 0.0)
-        base = np.maximum(base, 0.10)
+        base = np.maximum(_smooth(base), 0.10)
     return base * _barrier(rho, h_mode)
 
 

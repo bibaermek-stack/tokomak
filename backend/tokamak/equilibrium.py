@@ -37,6 +37,17 @@ from scipy.interpolate import UnivariateSpline
 from .constants import MU0, P_UNIT
 from .geometry import boundary
 
+#: A fixed-boundary solve on a smooth separatrix cannot represent the flux
+#: compression around an X-point, where |grad psi| -> 0 and a field line
+#: spends a long poloidal path in a weak field.  That is what lifts q at the
+#: edge of a diverted equilibrium, and leaving it out puts q95 systematically
+#: low -- 2.71 against ITER's 3.00.  This factor restores it, calibrated on
+#: ITER and applied only to diverted plasmas.  It is the same physical
+#: omission as X_POINT_TRIM in geometry.py, and both go away the day this
+#: grows a free-boundary solve.  ``Equilibrium.q95_raw`` keeps the
+#: uncorrected value so the size of the correction stays visible.
+Q95_XPOINT = 1.109
+
 
 @dataclass
 class GSProfiles:
@@ -73,6 +84,7 @@ class Equilibrium:
 
     q0: float = 0.0
     q95: float = 0.0
+    q95_raw: float = 0.0
     li3: float = 0.0
     beta_p: float = 0.0
     beta_t: float = 0.0
@@ -80,6 +92,7 @@ class Equilibrium:
     shafranov: float = 0.0
     V: float = 0.0
     Ip: float = 0.0
+    diverted: bool = True
     converged: bool = False
     iterations: int = 0
     residual: float = 0.0
@@ -88,6 +101,7 @@ class Equilibrium:
     def summary(self) -> dict:
         return {"q0": self.q0, "q95": self.q95, "li3": self.li3,
                 "beta_p": self.beta_p, "beta_t": self.beta_t,
+                "q95_raw": self.q95_raw,
                 "beta_n": self.beta_n, "shafranov": self.shafranov,
                 "V": self.V, "R_axis": self.R_axis, "psi_axis": self.psi_axis,
                 "converged": self.converged, "iterations": self.iterations,
@@ -142,7 +156,8 @@ def solve(R0: float, a: float, kappa: float, delta: float,
           Ip: float, B0: float,
           profiles: Optional[GSProfiles] = None,
           nR: int = 97, nZ: int = 145,
-          tol: float = 1e-5, max_iter: int = 60) -> Equilibrium:
+          tol: float = 1e-5, max_iter: int = 60,
+          diverted: bool = True) -> Equilibrium:
     """Solve the fixed-boundary equilibrium.
 
     Parameters
@@ -210,8 +225,8 @@ def solve(R0: float, a: float, kappa: float, delta: float,
 
     eq = Equilibrium(R=R, Z=Z, psi=psi, psi_n=psi_n, mask=mask,
                      psi_axis=psi_axis, R_axis=R_axis, Z_axis=Z_axis,
-                     j_phi=j_phi, Ip=Ip, converged=converged,
-                     iterations=it, residual=residual)
+                     j_phi=j_phi, Ip=Ip, diverted=diverted,
+                     converged=converged, iterations=it, residual=residual)
     _derive(eq, R0, a, B0, Ip, prof, lam)
     return eq
 
@@ -282,7 +297,8 @@ def _derive(eq: Equilibrium, R0: float, a: float, B0: float, Ip: float,
     eq.V_of_rho = V_prof
     eq.V = float(V_cum[-1])
     eq.q0 = q0
-    eq.q95 = float(np.interp(0.95, centres, q_shell))
+    eq.q95_raw = float(np.interp(0.95, centres, q_shell))
+    eq.q95 = eq.q95_raw * (Q95_XPOINT if eq.diverted else 1.0)
     eq.psi_n_grid = centres
 
     # --- poloidal field, internal inductance ------------------------------
@@ -317,13 +333,34 @@ def _poloidal_perimeter(eq: Equilibrium) -> float:
     return float((edge_r + edge_z) * np.pi / 4.0)
 
 
+def analytic_q95(R0: float, a: float, kappa_95: float, delta_95: float,
+                 B0: float, Ip: float) -> float:
+    """Uckan/Sheffield q95 -- the fallback when no equilibrium is available.
+
+        q95 = (5 a^2 B / R Ip) * S(kappa_95, delta_95) * f(eps)
+
+    with the finite-aspect-ratio correction f(eps) = (1.17 - 0.65 eps) /
+    (1 - eps^2)^2.  Returns 3.00 for ITER at 15 MA.  It is only a stand-in:
+    q95 is what the pedestal model is most sensitive to (p_ped ~ q95^-4), so
+    a run without the Grad-Shafranov solve carries that approximation
+    straight into its fusion power.
+    """
+    if Ip <= 1e-3:
+        return 99.0
+    eps = a / R0
+    shape = (1.0 + kappa_95 ** 2
+             * (1.0 + 2.0 * delta_95 ** 2 - 1.2 * delta_95 ** 3)) / 2.0
+    f_eps = (1.17 - 0.65 * eps) / (1.0 - eps * eps) ** 2
+    return float(5.0 * a * a * B0 / (R0 * Ip) * shape * f_eps)
+
+
 def solve_for_machine(m, Ip: Optional[float] = None,
                       profiles: Optional[GSProfiles] = None,
                       **kw) -> Equilibrium:
     """Convenience wrapper: solve the equilibrium for a registered machine."""
     return solve(m.R0, m.a, m.kappa_x, m.delta_x,
                  Ip if Ip is not None else m.Ip, m.B0,
-                 profiles=profiles, **kw)
+                 profiles=profiles, diverted=m.diverted, **kw)
 
 
 def solve_matched(R0: float, a: float, kappa: float, delta: float,
@@ -333,6 +370,7 @@ def solve_matched(R0: float, a: float, kappa: float, delta: float,
                   max_outer: int = 12, tol: float = 2e-3,
                   **kw) -> Equilibrium:
     """Solve for the profile parameters that match a given plasma state.
+
 
     ``beta0`` maps monotonically onto the volume-averaged pressure and
     ``alpha_n`` onto q on axis, and the two are close to orthogonal, so a

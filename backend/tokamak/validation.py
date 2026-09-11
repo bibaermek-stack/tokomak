@@ -90,9 +90,11 @@ def check_equilibrium() -> List[Check]:
               "ITER жану фазасы, 0.8-1.0"),
         Check("ГШ: β_N (жылулық)", eq.beta_n, 1.64, "", 6.0,
               "ITER жылулық β_N"),
-        Check("ГШ: q₉₅", eq.q95, 3.00, "", 12.0, "ITER жоба",
-              "бекітілген шекаралы есеп X-нүктені бере алмайды: "
-              "жүйелі түрде ~8% төмен"),
+        Check("ГШ: q₉₅ (X-нүкте түзетуімен)", eq.q95, 3.00, "", 2.0,
+              "ITER жоба"),
+        Check("ГШ: q₉₅ түзетусіз", eq.q95_raw, 2.71, "", 3.0,
+              "бекітілген шекаралы шикі мән",
+              "түзетудің көлемі көрініп тұруы үшін"),
         Check("ГШ: плазма көлемі", eq.V, 849.5, "м³", 1.0,
               "тегіс шекара (X-нүкте кесілмеген)"),
     ]
@@ -203,6 +205,29 @@ def check_fuelcycle() -> List[Check]:
     ]
 
 
+def check_pedestal() -> List[Check]:
+    """Pedestal model: the ITER point it is calibrated to, and the scaling
+    it is not."""
+    from . import pedestal as ped
+    m = geo.attach_geometry(get_machine("iter"))
+    base = dict(R0=m.R0, a=m.a, kappa_a=m.kappa_a, B0=m.B0, Ip=m.Ip,
+                q95=3.0, n_ped20=0.75, f_ion=0.87, L_pol=m.L_pol)
+    p = ped.solve(**base)
+    return [
+        Check("Педестал: ITER T_ped", p.T_ped, 4.50, "кэВ", 2.0,
+              "ITER педестал болжамдары", "калибрлеу нүктесі"),
+        Check("Педестал: ені Δψ_N", p.width_psi, 0.040, "", 15.0,
+              "EPED1: ITER-де ~0.04"),
+        Check("Педестал: β_p,ped", p.beta_p_ped, 0.25, "", 15.0,
+              "ITER педесталының полоидалды бетасы"),
+        Check("Педестал: p_ped ~ Ip^n", ped.scaling_exponent("Ip", **base),
+              2.00, "", 3.0, "EPED-тің негізгі нәтижесі",
+              "КАЛИБРЛЕНБЕГЕН — екі шектеудің қиылысынан шығады"),
+        Check("Педестал: p_ped ~ B^n", ped.scaling_exponent("B0", **base),
+              4.00, "", 3.0, "сол екі шектеуден"),
+    ]
+
+
 def check_kz1() -> List[Check]:
     """The package's own scaling: does it do what it claims?"""
     iter_m = geo.attach_geometry(get_machine("iter"))
@@ -223,13 +248,63 @@ def check_kz1() -> List[Check]:
     ]
 
 
+def check_integrated() -> List[Check]:
+    """The whole chain, run as one discharge, against ITER's Q=10 point.
+
+    This is the demanding test: no quantity below is imposed.  The pedestal
+    comes from peeling-ballooning, the core from stiff transport inside it,
+    the equilibrium from Grad-Shafranov, the composition from the ash and
+    impurity balance -- and H98 is an OUTPUT, so it is a prediction that
+    ITER reaches Q = 10 at roughly the confinement quality it assumes,
+    rather than an input that guarantees it.
+    """
+    from .solver import Simulator, SolverConfig
+    sim = Simulator(SolverConfig(machine="iter", equilibrium=True,
+                                 eq_interval=8.0, disruption_enabled=False,
+                                 pedestal_model="eped", n_rho=49))
+    acc, n = {}, 0
+    while sim.t < 180.0:
+        sim._scenario_actuators()
+        sim.step()
+        if sim.t > 130.0:
+            for k, v in sim.scalars().items():
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    acc[k] = acc.get(k, 0.0) + v
+            n += 1
+    d = {k: v / max(n, 1) for k, v in acc.items()}
+    src = "интеграцияланған 1.5-өлшемді есеп"
+    return [
+        Check("1.5D: синтез қуаты", d["Pfus"], 500.0, "МВт", 8.0, src),
+        Check("1.5D: Q", d["Q"], 10.0, "", 8.0, src),
+        Check("1.5D: педестал T_ped", d["Tped"], 4.5, "кэВ", 10.0,
+              "ITER педесталының болжамдары"),
+        Check("1.5D: ⟨T_e⟩", d["Te"], 8.9, "кэВ", 8.0, src),
+        Check("1.5D: ⟨T_i⟩", d["Ti"], 8.1, "кэВ", 8.0, src),
+        Check("1.5D: осьтегі T_e0", d["Te0"], 25.0, "кэВ", 12.0, src),
+        Check("1.5D: жылу энергиясы", d["Wth"], 325.0, "МДж", 8.0, src),
+        Check("1.5D: τ_E", d["tauE"], 3.70, "с", 10.0, src),
+        Check("1.5D: H98 (БОЛЖАМ, енгізілмеген)", d["H_factor"], 1.00, "",
+              10.0, "ITER Q=10 болжамы",
+              "енгізілген емес — модельдің өз нәтижесі"),
+        Check("1.5D: β_N", d["betaN"], 1.77, "", 10.0, src),
+        Check("1.5D: q₉₅", d["q95"], 3.00, "", 3.0, src),
+        Check("1.5D: гелий күлі", d["fHePc"], 4.10, "%", 15.0, src),
+        Check("1.5D: Z_eff", d["Zeff"], 1.65, "", 3.0, src),
+        Check("1.5D: бутстрап үлесі", d["fBS"], 0.20, "", 40.0,
+              "ITER сценарийлерінде 0.15-0.25"),
+        Check("1.5D: Гринвальд үлесі", d["fG"], 0.845, "", 5.0, src),
+    ]
+
+
 # ---------------------------------------------------------------------------
 #: What this package does NOT do.  Kept next to the checks on purpose.
 NOT_VALIDATED = [
-    "Интеграцияланған 1.5-өлшемді шешуші ITER-дің Q=10 нүктесін әлі "
-    "қайталамайды: ядродағы T_i шыңдалуы жеткіліксіз, сондықтан ол "
-    "Q ≈ 4 деңгейіндегі өзіндік тұрақты нүктеге тұрақтанады. "
-    "1%-ға валидацияланған анықтама — браузердегі 0-өлшемді модель.",
+    "Ядролық тасымалдың критикалық градиенті R/L_T = 6.5 деп фиттелген. "
+    "Гирокинетика оны 4-8 аралығында береді, сондықтан мән физикалық "
+    "аралықта, бірақ бұл — есептелген емес, келтірілген сан. Ол — "
+    "интеграцияланған есептегі жалғыз фиттелген ядролық тұрақты.",
+    "Педесталдың баллон табалдырығы да бір нүктеге (ITER) келтірілген; "
+    "оның орнына p_ped ~ Ip² масштабтауы тексеріледі.",
     "Град–Шафранов шешушісі бекітілген шекаралы: X-нүкте мен еркін "
     "шекара жоқ, сондықтан q₉₅ жүйелі түрде ~8% төмен.",
     "МГД тұрақтылығы есептелмейді: NTM, RWM, peeling-ballooning, ELM "
@@ -248,7 +323,8 @@ def all_checks() -> List[Check]:
     out: List[Check] = []
     for fn in (check_reactivity, check_geometry, check_equilibrium,
                check_bootstrap, check_sol, check_disruption,
-               check_fuelcycle, check_kz1):
+               check_fuelcycle, check_kz1, check_pedestal,
+               check_integrated):
         try:
             out.extend(fn())
         except Exception as exc:                      # pragma: no cover

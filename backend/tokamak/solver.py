@@ -28,6 +28,7 @@ from . import current as cur
 from . import disruption as disr
 from . import equilibrium as eqm
 from . import fuelcycle as fc
+from . import pedestal as ped
 from . import radiation as rad
 from . import sol as sol_mod
 from . import transport as tr
@@ -47,11 +48,18 @@ class SolverConfig:
     confinement_model: str = "ipb98y2"
     lh_model: str = "martin08"
     transport_model: str = "scaling_anchored"
+    #: "eped"  -- pedestal height from peeling-ballooning physics, so the
+    #:            global confinement is PREDICTED and H98 is an output
+    #: "anchor" -- pedestal driven to whatever reproduces the chosen 0-D
+    #:            scaling, so H98 is an input by construction
+    pedestal_model: str = "eped"
     n_rho: int = 65
     dt: float = 0.02
     equilibrium: bool = True
     eq_interval: float = 4.0          # plasma seconds between GS solves
     eq_grid: tuple = (73, 109)
+    eq_relax: float = 3.0             # s to glide onto a new equilibrium
+    chi_relax: float = 0.5            # s to relax the stiff diffusivity
     h_factor: float = 1.0             # multiplier on the chosen scaling
     reflectivity: float = 0.7
     tau_he_ratio: float = 5.85        # tau_He* / tau_E
@@ -127,16 +135,23 @@ class Simulator:
         self.disruption: Optional[disr.DisruptionResult] = None
         self.chi0 = 1.0
         self.q_prof = np.full(g.n, 3.0)
-        self.q95 = 8.0
+        self.q95 = eqm.analytic_q95(self.m.R0, self.m.a, self.m.kappa_95,
+                                    self.m.delta_95, self.m.B0, self.m.Ip)
         self.q0 = 2.0
         self.li = 0.9
         self.eq: Optional[eqm.Equilibrium] = None
         self._t_last_eq = -1e9
+        self._eq_target = None
+        self._eq_seen = False
+        self._chi_e = None
+        self._chi_i = None
         self.flux = cur.FluxBudget(
             available=cur.cs_flux_capacity(self.m.R0, self.m.a, self.m.Ip) * 1.35)
         self.psi_prof = np.zeros(g.n)
         self.n_sep = 0.02
+        self.n_he_sep = 0.0
         self.T_ped = 0.20
+        self.ped = None
         self.f_bs = 0.0
         self.I_bs = 0.0
         self.I_cd = 0.0
@@ -152,7 +167,7 @@ class Simulator:
 
         # --- composition ---------------------------------------------------
         f_he = s.n_he_avg / max(s.ne_avg, 1e-6)
-        c = self.comp.resolve(f_he)
+        c = self.comp.resolve(f_he, m.a_mass)
         self.c = c
 
         # --- fusion --------------------------------------------------------
@@ -165,7 +180,7 @@ class Simulator:
 
         # --- radiation -----------------------------------------------------
         r = rad.total_radiation(s.ne, s.Te, m.B0, m.a, self.comp, f_he,
-                                cfg.reflectivity)
+                                cfg.reflectivity, m.a_mass)
         self.P_brem = g.integrate(r["brem"])
         self.P_sync = g.integrate(r["sync"])
         self.P_line = g.integrate(r["line"])
@@ -259,21 +274,44 @@ class Simulator:
         # scaling-anchored: stiff shape, amplitude set by the chosen scaling
         return self.chi0 * tr.chi_shape(g.rho, self.h_mode, s.Te, m.R0, m.a)
 
-    def _control_pedestal(self) -> None:
-        """Set the pedestal top so the global confinement matches the scaling.
+    def _update_pedestal(self, dt: float) -> None:
+        """Set the pedestal-top temperature for this step.
 
-        With a stiff core the temperature profile is pinned to the critical
-        gradient, so the stored energy is decided almost entirely by the
-        pedestal height -- scaling chi up and down barely moves it.  The
-        pedestal is therefore the right control variable, which is also how
-        predictive ITER modelling is arranged: a pedestal model supplies the
-        boundary condition and the core is solved inside it.
+        With ``pedestal_model = "eped"`` the height comes from the coupled
+        KBM-width / ballooning-limit pair, so the stored energy -- and
+        therefore H98 -- is an OUTPUT of the model.  That is the difference
+        between a predictive code and one that reproduces a scaling because
+        it was told to.
+
+        With ``"anchor"`` the old behaviour is kept: the pedestal is driven
+        to whatever makes the global confinement match the chosen 0-D
+        scaling, which is useful for comparing against that scaling but
+        cannot predict anything it was not given.
         """
-        tau_target = max(self.cfg.h_factor * self.tau_scaling, 1e-3)
-        W_want = tau_target * self.P_loss
-        ratio = float(np.clip(W_want / max(self.W_th, 1e-3), 0.25, 4.0))
-        gain = 0.06 if self.h_mode else 0.10
-        self.T_ped = float(np.clip(self.T_ped * ratio ** gain, 0.02, 25.0))
+        g = self.grid
+        if not self.h_mode:
+            target = 0.35 * max(self.state.Te_avg, 0.05)
+            self.ped = None
+        elif self.cfg.pedestal_model == "eped":
+            i_ped = int(round(0.93 * (g.n - 1)))
+            n_ped = float(self.state.ne[i_ped])
+            self.ped = ped.solve(
+                R0=self.m.R0, a=self.m.a, kappa_a=self.m.kappa_a,
+                B0=self.m.B0, Ip=max(self.Ip, 0.05), q95=max(self.q95, 1.2),
+                n_ped20=max(n_ped, 0.02), f_ion=self.c["f_ion"],
+                L_pol=self.m.L_pol)
+            target = self.ped.T_ped * self.cfg.h_factor
+        else:
+            tau_target = max(self.cfg.h_factor * self.tau_scaling, 1e-3)
+            ratio = float(np.clip(tau_target * self.P_loss
+                                  / max(self.W_th, 1e-3), 0.25, 4.0))
+            target = self.T_ped * ratio ** 0.06
+            self.ped = None
+        # first-order response: the pedestal rebuilds on the energy
+        # confinement time, not instantly
+        tau_ped = max(0.3 * self.tau_E, 0.05)
+        self.T_ped += (float(np.clip(target, 0.02, 30.0)) - self.T_ped) \
+            * min(dt / tau_ped, 1.0)
 
     # -- one step ----------------------------------------------------------
     def step(self, dt: Optional[float] = None) -> None:
@@ -286,6 +324,14 @@ class Simulator:
         if self.disrupted:
             self._step_disrupted(dt)
             return
+
+        # q95 from the analytic form whenever no equilibrium is available;
+        # the Grad-Shafranov solve overwrites it when it runs
+        if not cfg.equilibrium or self.eq is None:
+            self.q95 = eqm.analytic_q95(m.R0, m.a, m.kappa_95, m.delta_95,
+                                        m.B0, max(self.Ip, 0.05))
+            self.q0 = max(1.0, self.q95 / (2.6 + 1.4 * self.li))
+            self.q_prof = self.q0 + (self.q95 - self.q0) * g.rho ** 2
 
         # --- current ramp and non-inductive drive ---------------------------
         rate = 0.55 * m.Ip / 15.0 * 4.0
@@ -339,19 +385,27 @@ class Simulator:
                + dep_nb * sp["nbi"] + dep_ic * sp["icrf"] - pei)
 
         # --- transport step ----------------------------------------------------
-        chi = self._chi()
-        # the ion channel is stiff against its OWN gradient, not the electron
-        # one; using chi_e's shape for the ions flattens T_i, and the fusion
-        # power goes as the square of what T_i does in the core
-        chi_i = 1.8 * self.chi0 * tr.chi_shape(g.rho, self.h_mode, s.Ti,
-                                               m.R0, m.a)
+        # Stiff transport evaluated on the previous step's gradient is an
+        # explicit treatment of an implicit problem, and it produces a
+        # relaxation oscillation: chi overshoots, the profile over-flattens,
+        # chi collapses, the profile rebuilds.  Relaxing chi in time turns
+        # that limit cycle into the steady state it is oscillating about.
+        w = min(dt / max(cfg.chi_relax, 1e-3), 1.0)
+        chi_new = self._chi()
+        chi_i_new = 1.8 * self.chi0 * tr.chi_shape(g.rho, self.h_mode, s.Ti,
+                                                   m.R0, m.a)
+        if getattr(self, "_chi_e", None) is None:
+            self._chi_e, self._chi_i = chi_new, chi_i_new
+        self._chi_e = self._chi_e + (chi_new - self._chi_e) * w
+        self._chi_i = self._chi_i + (chi_i_new - self._chi_i) * w
+        chi, chi_i = self._chi_e, self._chi_i
         self.chi = chi
         cap_e = W_UNIT * s.ne
         cap_i = W_UNIT * s.ne * c["f_ion"]
         zero = np.zeros(g.n)
 
         T_sep = 0.12 if self.h_mode else 0.05
-        self._control_pedestal()
+        self._update_pedestal(dt)
         i_ped = int(round(0.93 * (g.n - 1))) if self.h_mode else None
         Te_new = tr._diffuse(g, s.Te, cap_e, chi, s_e, zero, dt,
                              self.T_ped if self.h_mode else T_sep,
@@ -381,21 +435,33 @@ class Simulator:
                              zero, dt, self.n_sep, pinch=pinch)
         s.ne = np.maximum(ne_new, 0.005)
 
-        # helium ash: born where the fusion is, pumped on tau_He*
-        # helium birth rate density [1e20 m^-3 s^-1] from the local fusion rate
+        # Helium ash: born where the fusion is, transported like the fuel,
+        # and removed only by the divertor pumps.  Holding the separatrix
+        # helium at zero AND applying a 1/tau_He sink double-counts the
+        # removal and pins the ash two orders of magnitude below where it
+        # belongs.  What recycling actually does is hold a finite helium
+        # concentration at the edge, so that is what is controlled here,
+        # towards the assumed tau_He* / tau_E.
         src_he = self.p_fus_prof * MW / E_FUSION_J / 1e20
-        tau_he = max(cfg.tau_he_ratio * self.tau_E, 0.05)
         he_new = tr._diffuse(g, s.n_he, np.ones(g.n), D, src_he,
-                             np.full(g.n, 1.0 / tau_he), dt, 0.0, pinch=pinch)
+                             zero, dt, self.n_he_sep, pinch=pinch)
         s.n_he = np.maximum(he_new, 0.0)
+        src_total = g.integrate(src_he)
+        n_he_want = src_total * cfg.tau_he_ratio * self.tau_E / max(m.V, 1e-6)
+        self.n_he_sep = float(np.clip(
+            self.n_he_sep + 0.8 * (n_he_want - s.n_he_avg) * dt
+            / max(self.tau_E, 0.05), 0.0, 0.4))
 
         self.t += dt
         self._derive()
 
         # --- equilibrium ---------------------------------------------------------
-        if cfg.equilibrium and (self.t - self._t_last_eq) >= cfg.eq_interval \
-                and self.Ip > 0.25 * m.Ip:
-            self._solve_equilibrium()
+        if cfg.equilibrium:
+            if (self.t - self._t_last_eq) >= cfg.eq_interval \
+                    and self.Ip > 0.25 * m.Ip:
+                self._solve_equilibrium()
+            # glide towards the latest solution on the resistive timescale
+            self._apply_equilibrium(dt / max(cfg.eq_relax, 1e-3))
 
         # --- divertor -------------------------------------------------------------
         self._solve_divertor()
@@ -420,19 +486,43 @@ class Simulator:
     # -- sub-models ---------------------------------------------------------
     def _solve_equilibrium(self) -> None:
         m = self.m
+        # A sawtoothing plasma clamps q on axis at 1: every time q0 drops
+        # below it the internal kink reconnects the core and pushes it back.
+        # Without that constraint the current profile shape is free, and
+        # since the pedestal goes as q95^-4 an unconstrained q95 propagates
+        # into a 30% error in the fusion power.
+        q0_target = 1.0 if (self.state.Te_avg > 2.0
+                            and self.Ip > 0.7 * m.Ip) else None
         try:
             nR, nZ = self.cfg.eq_grid
             eq = eqm.solve_matched(m.R0, m.a, m.kappa_x, m.delta_x,
                                    self.Ip, m.B0, p_avg=self.p_avg,
-                                   q0=None, nR=nR, nZ=nZ, max_outer=6)
+                                   q0=q0_target, nR=nR, nZ=nZ, max_outer=6)
         except Exception:
             return
         self.eq = eq
         self._t_last_eq = self.t
-        self.q95 = eq.q95
-        self.q0 = eq.q0
-        self.li = eq.li3
-        self.q_prof = np.interp(self.grid.rho, eq.rho, eq.q)
+        # The equilibrium is re-solved at intervals, but q95 must not step:
+        # the pedestal goes as q95^-4, so a discrete jump in q95 drives a
+        # 20% swing in fusion power and the burn never settles.  Relax the
+        # equilibrium quantities towards the new solution instead -- which
+        # is also physically right, since the current profile evolves on
+        # the resistive timescale, not instantaneously.
+        self._eq_target = {"q95": eq.q95, "q0": eq.q0, "li": eq.li3,
+                           "q_prof": np.interp(self.grid.rho, eq.rho, eq.q)}
+        if not self._eq_seen:
+            self._apply_equilibrium(1.0)
+            self._eq_seen = True
+
+    def _apply_equilibrium(self, frac: float) -> None:
+        t = getattr(self, "_eq_target", None)
+        if not t:
+            return
+        f = float(np.clip(frac, 0.0, 1.0))
+        self.q95 += (t["q95"] - self.q95) * f
+        self.q0 += (t["q0"] - self.q0) * f
+        self.li += (t["li"] - self.li) * f
+        self.q_prof = self.q_prof + (t["q_prof"] - self.q_prof) * f
 
     def _solve_divertor(self) -> None:
         m = self.m
@@ -484,6 +574,9 @@ class Simulator:
             "flux_fraction": self.flux.fraction,
             "neutronRate": self.neutron_rate,
             "hMode": self.h_mode, "disrupted": self.disrupted,
+            "Tped": self.T_ped,
+            "ped_width_psi": self.ped.width_psi if self.ped else 0.0,
+            "ped_p": self.ped.p_ped if self.ped else 0.0,
             "V": m.V, "S": m.S, "kappaA": m.kappa_a,
         }
         if getattr(self, "div", None) is not None:

@@ -93,11 +93,18 @@ class Composition:
         "Be": 0.0200, "Ne": 0.00214, "W": 3.80e-5,
     })
 
-    def resolve(self, f_he: float = 0.0) -> dict:
+    def resolve(self, f_he: float = 0.0, a_mass: float = 2.5) -> dict:
         """Fuel dilution, Z_eff and the ion inventory for a given ash level.
 
         Charge neutrality fixes the fuel fraction:
         ``f_DT = 1 - sum_j Z_j f_j``.
+
+        ``z2a`` is ``sum_j (n_j/n_e) Z_j^2 / A_j``, summed over EVERY ion
+        species including the fuel.  It sets the electron-ion equipartition
+        rate and the fast-ion critical energy, and the fuel is four fifths
+        of it -- leaving it out makes the two channels eight times more
+        weakly coupled than they are, which lets T_i sit far below T_e and
+        costs most of the fusion power.
         """
         f_he = float(np.clip(f_he, 0.0, 0.4))
         sum_z = 2.0 * f_he
@@ -111,6 +118,7 @@ class Composition:
             sum_ion += frac
             z2a += frac * sp.z_mean ** 2 / sp.a_mass
         f_dt = max(0.0, 1.0 - sum_z)
+        z2a += f_dt / max(a_mass, 1.0)
         return {
             "f_dt": f_dt,
             "f_he": f_he,
@@ -171,9 +179,10 @@ def line_radiation(n20, Te_kev, comp: Composition):
 
 
 def total_radiation(n20, Te_kev, B_t, a_minor, comp: Composition,
-                    f_he: float = 0.0, reflectivity: float = 0.7) -> dict:
+                    f_he: float = 0.0, reflectivity: float = 0.7,
+                    a_mass: float = 2.5) -> dict:
     """All three channels plus the composition they were computed with."""
-    r = comp.resolve(f_he)
+    r = comp.resolve(f_he, a_mass)
     brem = bremsstrahlung(n20, Te_kev, r["z_eff"])
     sync = synchrotron(n20, Te_kev, B_t, a_minor, reflectivity)
     line = line_radiation(n20, Te_kev, comp)
