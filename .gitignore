@@ -7,3 +7,5 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+ai_files/*
+!ai_files/.gitkeep
