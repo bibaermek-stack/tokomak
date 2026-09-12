@@ -119,7 +119,7 @@
     this.onLaunch = opts.onLaunch || function () {};
     this._bind();
     this.pendingFiles = [];
-    this.log('bot', 'Растаусыз слайдер қозғалмайды. Сурет немесе файл қосуға болады. «120 с есепте» — сервер есебі.');
+    this.log('bot', 'Сөйлесу осында. Растау — оң жақта. Сурет/файл қосуға болады.');
     this._detect();
   }
 
@@ -171,9 +171,11 @@
       this.pending = [hit.proposal];
       this.dangerArmed = false;
     }
-    this.log('alarm', hit.msg + '  →  оң жақ: РАСТАУ / ЖОҚ · Launch = бірден');
     this.renderRail(hit.msg);
-    if (!this.available) return;
+    if (!this.available) {
+      this.log('alarm', hit.msg);
+      return;
+    }
     this.send('[ДАБЫЛ] ' + hit.msg, { alarm: true });
   };
 
@@ -332,9 +334,13 @@
     if (port === '8777' || location.protocol === 'file:') {
       candidates.push('http://127.0.0.1:8001');
     }
+    if (location.hostname.indexOf('railway.app') === -1) {
+      candidates.push('https://tokomak-production.up.railway.app');
+    }
     (function next(i) {
       if (i >= candidates.length) {
         self._status(false);
+        setTimeout(function () { self._detect(); }, 8000);
         return;
       }
       const b = candidates[i];
@@ -344,6 +350,7 @@
       }).then(function (j) {
         self.base = b;
         self._status(!!j.ai_available);
+        if (!j.ai_available) setTimeout(function () { self._detect(); }, 8000);
       }).catch(function () { next(i + 1); });
     })(0);
   };
@@ -364,11 +371,13 @@
   };
 
   Advisor.prototype.log = function (who, text, extra) {
-    const box = $('ai-log');
+    const confirm = (who === 'alarm' || who === 'confirm');
+    const box = $(confirm ? 'ai-confirm-log' : 'ai-log') || $('ai-log');
     const row = document.createElement('div');
     row.className = 'ai-msg ' + who;
     const h = document.createElement('b');
-    h.textContent = who === 'user' ? 'СІЗ' : (who === 'alarm' ? 'ДАБЫЛ' : 'КЕҢЕСШІ');
+    h.textContent = who === 'user' ? 'СІЗ'
+      : (who === 'alarm' ? 'ДАБЫЛ' : (who === 'confirm' ? 'РАСТАУ' : 'КЕҢЕСШІ'));
     const p = document.createElement('p');
     p.textContent = text;
     row.appendChild(h);
@@ -387,15 +396,19 @@
     }
     const nPending = this.pendingFiles.length;
     const label = text || (nPending ? ('файл: ' + nPending) : '');
-    if (!opt.alarm) this.log('user', label);
-    this.history.push({ role: 'user', content: text || label });
+    if (!opt.alarm) {
+      this.log('user', label);
+      this.history.push({ role: 'user', content: text || label });
+    } else {
+      this.log('alarm', String(text || '').replace(/^\[ДАБЫЛ\]\s*/, ''));
+    }
     this.busy = true;
     $('ai-send').classList.add('on');
 
     this._uploadPending().then(function (names) {
       const body = {
         message: text || (names.length ? 'осы файлды қара' : ''),
-        history: self.history.slice(-8),
+        history: opt.alarm ? [] : self.history.slice(-8),
         snapshot: snapshot(self.phys),
         attachments: names
       };
@@ -413,11 +426,15 @@
       const j = pack.j || {};
       if (j.ai_available === false) self._status(false);
       const reply = j.reply || 'Жауап жоқ.';
-      self.log('bot', reply, self._extras(j));
-      self.history.push({ role: 'assistant', content: reply });
+      if (opt.alarm) {
+        self.log('confirm', reply, self._extras(j));
+      } else {
+        self.log('bot', reply, self._extras(j));
+        self.history.push({ role: 'assistant', content: reply });
+      }
       if (j.proposals && j.proposals.length && !self._launched) self.showCard(j.proposals);
     }).catch(function () {
-      self.log('bot', 'Кеңесші уақытша қолжетімсіз.');
+      self.log(opt.alarm ? 'confirm' : 'bot', 'Кеңесші уақытша қолжетімсіз.');
     }).then(function () {
       self.busy = false;
       $('ai-send').classList.remove('on');
@@ -549,7 +566,7 @@
     $('ai-card').hidden = true;
     this.hideRail();
     this.clearAlarm();
-    this.log('bot', 'Ұсыныс қабылданбады. Пульт өзгермеді.');
+    this.log('confirm', 'Ұсыныс қабылданбады. Пульт өзгермеді.');
   };
 
   Advisor.prototype.confirm = function () {
@@ -558,7 +575,7 @@
     const danger = items.some(function (p) { return p.danger; });
     if (danger && !this.dangerArmed) {
       this.dangerArmed = true;
-      this.log('bot', 'Қауіпті әрекет. Тағы бір рет РАСТАУ басыңыз.');
+      this.log('confirm', 'Қауіпті әрекет. Тағы бір рет РАСТАУ басыңыз.');
       return;
     }
     const phys = this.phys;
@@ -597,7 +614,7 @@
     $('ai-card').hidden = true;
     this.hideRail();
     this.clearAlarm();
-    this.log('bot', 'Расталды. Сетпойнттер жазылды.');
+    this.log('confirm', 'Расталды. Сетпойнттер жазылды.');
   };
 
   global.Advisor = Advisor;

@@ -341,18 +341,27 @@
       <span class="ai-title">AI chat</span>
       <span id="ai-avail">КҮТУ</span>
     </header>
-    <div id="ai-log"></div>
-    <div id="ai-card" hidden></div>
-    <div id="ai-attach-list"></div>
-    <form id="ai-form">
-      <label id="ai-attach-btn" title="файл / сурет">+
-        <input type="file" id="ai-attach" multiple hidden
-               accept="image/*,.txt,.md,.csv,.json,.html,.png,.jpg,.jpeg,.webp,.gif">
-      </label>
-      <input id="ai-input" maxlength="4000" autocomplete="off"
-             placeholder="жаз немесе сурет/файл қосыңыз">
-      <button type="submit" id="ai-send">ЖІБЕРУ</button>
-    </form>
+    <div id="ai-split">
+      <section id="ai-talk">
+        <div class="ai-col-head">СӨЙЛЕСУ</div>
+        <div id="ai-log"></div>
+        <div id="ai-attach-list"></div>
+        <form id="ai-form">
+          <label id="ai-attach-btn" title="файл / сурет">+
+            <input type="file" id="ai-attach" multiple hidden
+                   accept="image/*,.txt,.md,.csv,.json,.html,.png,.jpg,.jpeg,.webp,.gif">
+          </label>
+          <input id="ai-input" maxlength="4000" autocomplete="off"
+                 placeholder="жаз немесе сурет/файл қосыңыз">
+          <button type="submit" id="ai-send">ЖІБЕРУ</button>
+        </form>
+      </section>
+      <section id="ai-confirm-pane">
+        <div class="ai-col-head">РАСТАУ</div>
+        <div id="ai-confirm-log"></div>
+        <div id="ai-card" hidden></div>
+      </section>
+    </div>
   </aside>
 </div>
 

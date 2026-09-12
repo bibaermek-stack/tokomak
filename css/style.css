@@ -496,7 +496,22 @@ body.ai-focus #ai-dock{
 body.ai-focus #ai-tabs{justify-content:flex-start;padding:12px 16px 8px}
 body.ai-focus #ai-tab{background:rgba(63,224,255,.18)}
 body.ai-focus #ai-panel{
-  display:flex;flex:1;margin:0 16px 16px;max-height:none;
+  display:flex;flex:1;margin:0 16px 16px;max-height:none;flex-direction:column;
+}
+#ai-split{display:flex;flex:1;min-height:0;gap:0}
+#ai-talk,#ai-confirm-pane{
+  display:flex;flex-direction:column;min-width:0;min-height:0;
+}
+#ai-talk{flex:1.35;border-right:1px solid rgba(70,190,240,.18)}
+#ai-confirm-pane{flex:1;background:rgba(18,6,10,.22)}
+.ai-col-head{
+  font-size:8px;letter-spacing:.2em;padding:8px 12px 4px;
+  color:rgba(120,225,255,.75);
+}
+#ai-confirm-pane .ai-col-head{color:var(--red)}
+#ai-confirm-log{
+  flex:1;overflow-y:auto;min-height:0;padding:8px 12px;
+  font-size:12px;line-height:1.45;
 }
 #ai-head{
   display:flex;align-items:center;gap:8px;padding:6px 8px 4px;
@@ -523,6 +538,8 @@ body.ai-focus #ai-log{font-size:14px}
 .ai-msg{margin:0 0 7px}
 .ai-msg b{display:block;font-size:7px;letter-spacing:.16em;color:rgba(120,225,255,.75);margin-bottom:2px}
 .ai-msg.user b{color:rgba(255,182,72,.85)}
+.ai-msg.confirm b{color:rgba(77,255,176,.85)}
+#ai-card{margin:8px 12px 12px}
 .ai-msg p{margin:0;color:#eaf7ff;white-space:pre-wrap}
 .ai-extra{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .ai-cite{
