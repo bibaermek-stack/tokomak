@@ -37,16 +37,25 @@ from scipy.interpolate import UnivariateSpline
 from .constants import MU0, P_UNIT
 from .geometry import boundary
 
-#: A fixed-boundary solve on a smooth separatrix cannot represent the flux
-#: compression around an X-point, where |grad psi| -> 0 and a field line
-#: spends a long poloidal path in a weak field.  That is what lifts q at the
-#: edge of a diverted equilibrium, and leaving it out puts q95 systematically
-#: low -- 2.71 against ITER's 3.00.  This factor restores it, calibrated on
-#: ITER and applied only to diverted plasmas.  It is the same physical
-#: omission as X_POINT_TRIM in geometry.py, and both go away the day this
-#: grows a free-boundary solve.  ``Equilibrium.q95_raw`` keeps the
-#: uncorrected value so the size of the correction stays visible.
-Q95_XPOINT = 1.109
+#: No X-point correction is applied to q95, and the history of this constant
+#: is worth keeping.
+#:
+#: An earlier version set it to 1.109, on the evidence that the solver
+#: returned q95 = 2.71 against ITER's 3.00 and the reasoning that a
+#: fixed-boundary solve cannot represent the flux compression at an X-point.
+#: The reasoning was plausible and the number was wrong: the 2.71 was an
+#: artefact of an over-smoothed spline through Phi(psi_N), not physics.
+#: UnivariateSpline's `s` is the SUM of squared residuals and had been set
+#: two orders of magnitude too large, which flattened the flux derivative
+#: and with it the whole q profile -- the same artefact was making the core
+#: q profile non-monotonic.  With the smoothing set correctly the solver
+#: returns q95 = 3.10, grid-converged, i.e. 3% HIGH rather than 8% low.
+#:
+#: The lesson is kept in the code because the failure mode is generic: a
+#: calibration factor introduced to close a gap will happily absorb a
+#: numerical bug and make it invisible.  q95 now carries its residual
+#: openly instead.
+Q95_XPOINT = 1.0
 
 
 @dataclass
@@ -157,7 +166,7 @@ def solve(R0: float, a: float, kappa: float, delta: float,
           profiles: Optional[GSProfiles] = None,
           nR: int = 97, nZ: int = 145,
           tol: float = 1e-5, max_iter: int = 60,
-          diverted: bool = True) -> Equilibrium:
+          diverted: bool = True, monotonic_q: bool = True) -> Equilibrium:
     """Solve the fixed-boundary equilibrium.
 
     Parameters
@@ -227,12 +236,12 @@ def solve(R0: float, a: float, kappa: float, delta: float,
                      psi_axis=psi_axis, R_axis=R_axis, Z_axis=Z_axis,
                      j_phi=j_phi, Ip=Ip, diverted=diverted,
                      converged=converged, iterations=it, residual=residual)
-    _derive(eq, R0, a, B0, Ip, prof, lam)
+    _derive(eq, R0, a, B0, Ip, prof, lam, monotonic_q)
     return eq
 
 
 def _derive(eq: Equilibrium, R0: float, a: float, B0: float, Ip: float,
-            prof: GSProfiles, lam: float) -> None:
+            prof: GSProfiles, lam: float, monotonic: bool = True) -> None:
     """Flux-surface quantities, q profile, beta and internal inductance."""
     R, Z, psi, mask = eq.R, eq.Z, eq.psi, eq.mask
     Rg, _ = np.meshgrid(R, Z)
@@ -277,18 +286,37 @@ def _derive(eq: Equilibrium, R0: float, a: float, B0: float, Ip: float,
     V_cum = np.concatenate([[0.0], np.cumsum(dV)])
     Phi_cum = np.concatenate([[0.0], np.cumsum(dPhi)])
 
+    # Smoothing budget: allow each point to move by a small fraction of the
+    # total toroidal flux.  UnivariateSpline's `s` is the SUM of squared
+    # residuals, so it has to be scaled by the number of points -- getting
+    # this wrong by the two orders of magnitude it is easy to get it wrong by
+    # turns the spline into a low-order fit and erases the core q profile.
+    resid = 2.0e-3 * max(Phi_cum[-1], 1e-9)
     spline = UnivariateSpline(edges, Phi_cum, k=3,
-                              s=max(1e-6, 1e-4 * Phi_cum[-1] ** 2 * nb))
+                              s=max(1e-9, resid ** 2 * nb))
     # q = (1/2pi) |dPhi/dpsi|,  dpsi = -psi_a d(psi_n)
     centres = np.linspace(0.005, 0.995, 200)
     q_shell = spline.derivative()(centres) / (2.0 * np.pi * psi_a)
     q_shell = np.abs(q_shell)
 
-    # q on axis: the innermost shells enclose only a handful of cells, so
-    # extrapolate the well-resolved 0.05-0.30 range inwards rather than
-    # trusting the spline at psi_n -> 0.
+    # The innermost flux shells enclose only a handful of grid cells, so the
+    # differentiated flux is noise there and the raw profile comes out
+    # non-monotonic.  A monotonically-peaked current profile cannot produce
+    # that, and anything looking for a q = 1 surface is misled by it, so
+    # impose monotonicity as the physical constraint it is: isotonic
+    # regression finds the nearest non-decreasing curve in least squares,
+    # which removes the noise dips without imposing a shape on the profile.
+    # ``monotonic`` switches it off for a reversed-shear scenario, where a
+    # non-monotonic q is the point rather than an artefact.
+    if monotonic:
+        try:
+            from scipy.optimize import isotonic_regression
+            q_shell = isotonic_regression(q_shell, increasing=True).x
+        except Exception:
+            q_shell = np.maximum.accumulate(q_shell)
     fit = (centres > 0.05) & (centres < 0.30)
-    q0 = float(np.polyval(np.polyfit(centres[fit] ** 2, q_shell[fit], 1), 0.0))
+    coef = np.polyfit(centres[fit] ** 2, q_shell[fit], 1)
+    q0 = float(np.polyval(coef, 0.0))
     rho = np.sqrt(np.clip(spline(centres) / max(spline(1.0), 1e-30), 0.0, 1.0))
     V_prof = np.interp(centres, edges, V_cum)
 
@@ -299,6 +327,7 @@ def _derive(eq: Equilibrium, R0: float, a: float, B0: float, Ip: float,
     eq.q0 = q0
     eq.q95_raw = float(np.interp(0.95, centres, q_shell))
     eq.q95 = eq.q95_raw * (Q95_XPOINT if eq.diverted else 1.0)
+
     eq.psi_n_grid = centres
 
     # --- poloidal field, internal inductance ------------------------------

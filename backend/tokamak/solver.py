@@ -28,6 +28,7 @@ from . import current as cur
 from . import disruption as disr
 from . import equilibrium as eqm
 from . import fuelcycle as fc
+from . import mhd as mhd_mod
 from . import pedestal as ped
 from . import radiation as rad
 from . import sol as sol_mod
@@ -53,6 +54,11 @@ class SolverConfig:
     #: "anchor" -- pedestal driven to whatever reproduces the chosen 0-D
     #:            scaling, so H98 is an input by construction
     pedestal_model: str = "eped"
+    #: Ballooning limit for the EPED-like pedestal.  ``None`` uses the
+    #: module default in :mod:`tokamak.pedestal`; set it explicitly to
+    #: recalibrate without mutating a module global (which is easy to do
+    #: from the wrong import and have silently do nothing).
+    alpha_crit: Optional[float] = None
     n_rho: int = 65
     dt: float = 0.02
     equilibrium: bool = True
@@ -68,6 +74,18 @@ class SolverConfig:
     seeding_fraction: Optional[float] = None
     disruption_enabled: bool = True
     mitigation: bool = True
+    #: MHD stability: limits, island evolution, sawteeth, and their feedback
+    mhd_enabled: bool = True
+    mhd_interval: float = 0.5         # s between stability evaluations
+    sawteeth: bool = True
+    ntm_enabled: bool = True
+    elm_cycle: bool = False           # let ELMs crash the pedestal
+    eccd_ntm: float = 0.0             # j_cd / j_bs applied to the 2/1
+    #: Island width a sawtooth crash deposits at the 2/1 surface, as a
+    #: fraction of the marginal width w_d.  Above 1 the seed grows: this is
+    #: the trigger-avoidance knob, and it is why NTM control on ITER is as
+    #: much about sawtooth pacing as about beta.
+    sawtooth_seed: float = 1.6
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -155,6 +173,13 @@ class Simulator:
         self.f_bs = 0.0
         self.I_bs = 0.0
         self.I_cd = 0.0
+        self.stab: Optional[mhd_mod.StabilityReport] = None
+        self.islands: Dict[str, mhd_mod.NTM] = {}
+        self._t_last_mhd = -1e9
+        self.saw_phase = 0.0
+        self.saw_count = 0
+        self.elm_phase = 0.0
+        self.elm_count = 0
         self.log: List[dict] = []
         self.alarms: List[str] = []
         self._derive()
@@ -299,7 +324,7 @@ class Simulator:
                 R0=self.m.R0, a=self.m.a, kappa_a=self.m.kappa_a,
                 B0=self.m.B0, Ip=max(self.Ip, 0.05), q95=max(self.q95, 1.2),
                 n_ped20=max(n_ped, 0.02), f_ion=self.c["f_ion"],
-                L_pol=self.m.L_pol)
+                L_pol=self.m.L_pol, alpha_crit=self.cfg.alpha_crit)
             target = self.ped.T_ped * self.cfg.h_factor
         else:
             tau_target = max(self.cfg.h_factor * self.tau_scaling, 1e-3)
@@ -399,6 +424,9 @@ class Simulator:
         self._chi_e = self._chi_e + (chi_new - self._chi_e) * w
         self._chi_i = self._chi_i + (chi_i_new - self._chi_i) * w
         chi, chi_i = self._chi_e, self._chi_i
+        if cfg.mhd_enabled:
+            chi = self._island_transport(chi)
+            chi_i = self._island_transport(chi_i)
         self.chi = chi
         cap_e = W_UNIT * s.ne
         cap_i = W_UNIT * s.ne * c["f_ion"]
@@ -463,6 +491,10 @@ class Simulator:
             # glide towards the latest solution on the resistive timescale
             self._apply_equilibrium(dt / max(cfg.eq_relax, 1e-3))
 
+        # --- MHD stability, island evolution, sawteeth -----------------------------
+        if cfg.mhd_enabled:
+            self._stability(dt)
+
         # --- divertor -------------------------------------------------------------
         self._solve_divertor()
 
@@ -471,6 +503,16 @@ class Simulator:
             cause = disr.check_limits(
                 f_greenwald=self.f_G, q95=self.q95, beta_n=self.beta_n,
                 p_rad=self.P_rad, p_heat=p_heat, Te_avg=s.Te_avg, li=self.li)
+            # A 2/1 island wide enough to reach the wall locks to it, the
+            # plasma stops rotating, and the discharge ends.  That is how
+            # most beta-limit disruptions actually happen -- through a
+            # tearing mode, not through an ideal mode going unstable.
+            if cause is None and self.stab is not None:
+                lock = self.islands.get("2/1")
+                if lock is not None and lock.w > 0.35 * lock.r_s:
+                    cause = "ҚҰЛЫПТАЛҒАН 2/1 МОДА — NTM"
+                elif self.stab.c_beta > 1.0:
+                    cause = "RWM — ИДЕАЛ ҚАБЫРҒА ШЕГІНЕН АСТЫ"
             if cause:
                 self.trigger_disruption(cause)
 
@@ -523,6 +565,121 @@ class Simulator:
         self.q0 += (t["q0"] - self.q0) * f
         self.li += (t["li"] - self.li) * f
         self.q_prof = self.q_prof + (t["q_prof"] - self.q_prof) * f
+
+    def _stability(self, dt: float) -> None:
+        """Evaluate stability, evolve the islands, and let them act back.
+
+        The feedback is the point.  A saturated island flattens the
+        temperature across its width, so it is applied as a local burst of
+        transport rather than as a number subtracted at the end; a sawtooth
+        crash reconnects the core and seeds the tearing modes, which is how
+        an NTM actually starts.
+        """
+        g, m, s_, cfg = self.grid, self.m, self.state, self.cfg
+        if (self.t - self._t_last_mhd) >= cfg.mhd_interval:
+            self._t_last_mhd = self.t
+            p_prof = s_.pressure(self.c["f_ion"])
+            self.stab = mhd_mod.analyse(
+                rho=g.rho, q=self.q_prof, p=p_prof,
+                beta_n=self.beta_n, beta_p=self.beta_p, li=self.li,
+                q95=self.q95, R0=m.R0, a=m.a, B0=m.B0,
+                kappa=m.kappa_x, delta=m.delta_x,
+                tau_e=self.tau_E, te_avg=s_.Te_avg,
+                W_th=self.W_th, P_sep=self.P_sep,
+                ped_width_psi=self.ped.width_psi if self.ped else 0.04,
+                eta_q1=self._eta_at(self.stab.sawtooth.r_q1
+                                    if self.stab and self.stab.sawtooth
+                                    else 0.3),
+                fast_ion_fraction=self.W_fast / max(self.W, 1e-6),
+                existing=self.islands if cfg.ntm_enabled else None,
+                eccd={"2/1": cfg.eccd_ntm},
+                mitigated_elms=cfg.mitigation)
+            self.islands = {n.key: n for n in self.stab.ntms}
+
+        if self.stab is None:
+            return
+
+        # --- tearing modes evolve every step --------------------------------
+        if cfg.ntm_enabled:
+            for mode in self.islands.values():
+                mode.step(dt)
+
+        # --- sawteeth --------------------------------------------------------
+        saw = self.stab.sawtooth
+        if cfg.sawteeth and saw is not None and saw.unstable and saw.r_mix > 0:
+            self.saw_phase += dt / max(saw.period_estimate, 0.05)
+            if self.saw_phase >= 1.0:
+                self.saw_phase = 0.0
+                self.saw_count += 1
+                self._sawtooth_crash(saw.r_mix)
+
+        # --- ELM cycle -------------------------------------------------------
+        elm = self.stab.elms
+        if cfg.elm_cycle and self.h_mode and elm is not None:
+            self.elm_phase += dt * elm.frequency
+            if self.elm_phase >= 1.0:
+                self.elm_phase = 0.0
+                self.elm_count += 1
+                f = 1.0 - min(elm.loss_fraction * 3.0, 0.5)
+                i0 = int(round(0.85 * (g.n - 1)))
+                s_.Te[i0:] *= f
+                s_.Ti[i0:] *= f
+                self._seed_islands(0.8)
+
+    def _eta_at(self, rho_x: float) -> float:
+        """Neoclassical resistivity on one flux surface [Ohm m]."""
+        g, m, s_ = self.grid, self.m, self.state
+        r = float(np.clip(rho_x, 0.05, 0.95))
+        return float(cur.neoclassical_resistivity(
+            np.array([r]),
+            np.array([float(np.interp(r, g.rho, s_.ne))]),
+            np.array([float(np.interp(r, g.rho, s_.Te))]),
+            self.c["z_eff"], m.R0, m.eps,
+            np.array([float(np.interp(r, g.rho, self.q_prof))]))[0])
+
+    def _sawtooth_crash(self, r_mix: float) -> None:
+        """Kadomtsev reconnection: flatten everything inside the mixing radius.
+
+        The crash conserves particle and energy content inside the mixed
+        region -- it redistributes rather than expels -- and deposits a seed
+        island at the outer rational surfaces, which is the standard trigger
+        for a neoclassical tearing mode.
+        """
+        g, s_ = self.grid, self.state
+        s_.Te = mhd_mod.apply_sawtooth_crash(g.rho, s_.Te, r_mix)
+        s_.Ti = mhd_mod.apply_sawtooth_crash(g.rho, s_.Ti, r_mix)
+        s_.ne = mhd_mod.apply_sawtooth_crash(g.rho, s_.ne, r_mix)
+        s_.n_he = mhd_mod.apply_sawtooth_crash(g.rho, s_.n_he, r_mix)
+        self._seed_islands(self.cfg.sawtooth_seed)
+        self.alarms.append(f"t={self.t:.1f}s ПИЛООБРАЗНЫЙ ҚҰЛАУ "
+                           f"(r_mix = {r_mix:.2f})")
+
+    def _seed_islands(self, factor: float) -> None:
+        for mode in self.islands.values():
+            if mode.w <= 0.0:
+                mode.seed(factor * mode.w_d)
+
+    def _island_transport(self, chi: np.ndarray) -> np.ndarray:
+        """Flatten the profile across every saturated island.
+
+        An island short-circuits the flux surfaces inside it, so the
+        temperature is constant across its width.  In a 1-D transport solve
+        that is a local diffusivity large enough to erase the gradient
+        there, which is both the physically right statement and the one
+        that feeds back into the confinement automatically.
+        """
+        if not self.islands:
+            return chi
+        out = chi
+        rho = self.grid.rho
+        for mode in self.islands.values():
+            if mode.w <= mode.w_d:
+                continue
+            half = 0.5 * mode.w / self.m.a
+            band = np.abs(rho - mode.rho_s) < max(half, 1e-3)
+            if band.any():
+                out = np.where(band, np.maximum(out, 30.0 * self.chi0), out)
+        return out
 
     def _solve_divertor(self) -> None:
         m = self.m
@@ -579,6 +736,25 @@ class Simulator:
             "ped_p": self.ped.p_ped if self.ped else 0.0,
             "V": m.V, "S": m.S, "kappaA": m.kappa_a,
         }
+        if self.stab is not None:
+            st = self.stab
+            d.update({
+                "betaN_no_wall": st.beta_n_no_wall,
+                "troyon_fraction": st.troyon_fraction,
+                "c_beta": st.c_beta,
+                "kink_margin": st.kink_margin,
+                "vertical_margin": st.vertical_margin,
+                "first_stable_fraction": st.first_stable_fraction,
+                "limiting_mode": st.limiting_mode,
+                "mhd_margin": st.margin,
+                "w_21": self.islands["2/1"].w if "2/1" in self.islands else 0.0,
+                "w_32": self.islands["3/2"].w if "3/2" in self.islands else 0.0,
+                "r_q1": st.sawtooth.r_q1 if st.sawtooth else 0.0,
+                "r_mix": st.sawtooth.r_mix if st.sawtooth else 0.0,
+                "saw_count": self.saw_count,
+                "elm_freq": st.elms.frequency if st.elms else 0.0,
+                "elm_dW": st.elms.energy_loss if st.elms else 0.0,
+            })
         if getattr(self, "div", None) is not None:
             d.update({"qDiv": self.div.q_target_MWm2,
                       "T_target_eV": self.div.T_target_eV,

@@ -13,6 +13,7 @@ from tokamak import disruption as disr
 from tokamak import equilibrium as eqm
 from tokamak import fuelcycle as fc
 from tokamak import geometry as geo
+from tokamak import mhd
 from tokamak import radiation as rad
 from tokamak import sol as sol_mod
 from tokamak import transport as tr
@@ -378,3 +379,212 @@ def test_validation_report_passes():
 
 def test_validation_states_its_limitations():
     assert len(val.NOT_VALIDATED) >= 5
+
+
+# --- MHD stability ----------------------------------------------------------
+def _iter_q_profile(n=201):
+    rho = np.linspace(0.0, 1.0, n)
+    return rho, 0.85 + 2.35 * rho ** 2
+
+
+def test_magnetic_shear_matches_the_analytic_profile():
+    rho, q = _iter_q_profile()
+    s = mhd.magnetic_shear(rho, q)
+    # s = (rho/q) dq/drho = 4.7 rho^2 / q for this profile
+    exact = 4.7 * rho ** 2 / q
+    assert np.allclose(s[5:-5], exact[5:-5], rtol=2e-2)
+
+
+def test_troyon_limit_rises_with_internal_inductance():
+    assert mhd.troyon_limit(1.0) == pytest.approx(4.0)
+    assert mhd.troyon_limit(1.2) > mhd.troyon_limit(0.8)
+
+
+def test_c_beta_places_the_operating_point_between_the_two_limits():
+    no_wall, ideal = 3.0, 3.9
+    below = mhd.rwm_margin(2.0, no_wall, ideal, rotation_stabilised=False)
+    at_no_wall = mhd.rwm_margin(3.0, no_wall, ideal, rotation_stabilised=False)
+    at_wall = mhd.rwm_margin(3.9, no_wall, ideal, rotation_stabilised=False)
+    assert below < 0.0
+    assert at_no_wall == pytest.approx(0.0)
+    assert at_wall == pytest.approx(1.0)
+
+
+def test_rational_surfaces_are_found_where_q_says_they_are():
+    rho, q = _iter_q_profile()
+    assert mhd.find_rational_surface(rho, q, 2, 1) == pytest.approx(
+        np.sqrt(1.15 / 2.35), rel=1e-3)
+    assert mhd.find_rational_surface(rho, q, 3, 2) == pytest.approx(
+        np.sqrt(0.65 / 2.35), rel=1e-3)
+    # q never reaches 4 on this profile
+    assert mhd.find_rational_surface(rho, q, 4, 1) is None
+
+
+def _ntm(beta_p, eccd=0.0, w_d=0.023):
+    return mhd.NTM(m=2, n=1, r_s=1.4, rho_s=0.7, beta_p=beta_p,
+                   lq_over_lp=1.67, eps=0.226, w_d=w_d, tau_r=10.0,
+                   eccd_drive=eccd)
+
+
+def test_ntm_is_a_threshold_problem_not_a_beta_limit():
+    """The defining property: below the marginal width a seed heals, above
+    it the same equilibrium lets the island run away.  A model that only
+    compared beta against a limit would miss this entirely."""
+    ntm = _ntm(1.0)
+    w_seed = ntm.seed_threshold()
+    assert w_seed > 0.0
+    assert ntm.dwdt(0.5 * w_seed) < 0.0        # small seed heals
+    assert ntm.dwdt(1.5 * w_seed) > 0.0        # large seed grows
+
+
+def test_ntm_saturates_rather_than_growing_without_bound():
+    ntm = _ntm(1.0)
+    w_sat = ntm.saturated_width()
+    assert 0.03 < w_sat < 0.25
+    assert ntm.dwdt(0.9 * w_sat) > 0.0
+    assert ntm.dwdt(1.1 * w_sat) < 0.0
+
+
+def test_ntm_island_grows_with_poloidal_beta():
+    assert _ntm(0.5).saturated_width() == 0.0        # stable
+    assert _ntm(1.3).saturated_width() > _ntm(0.9).saturated_width() > 0.0
+
+
+def test_eccd_shrinks_and_then_suppresses_the_island():
+    partial = _ntm(1.3, eccd=0.5).saturated_width()
+    full = _ntm(1.3, eccd=1.0).saturated_width()
+    assert 0.0 < partial < _ntm(1.3).saturated_width()
+    assert full == 0.0
+
+
+def test_ntm_integration_walks_towards_the_saturated_width():
+    ntm = _ntm(1.0)
+    w_sat = ntm.saturated_width()
+    ntm.seed(1.2 * ntm.seed_threshold())
+    for _ in range(4000):
+        ntm.step(0.01)
+    assert ntm.w == pytest.approx(w_sat, rel=0.05)
+
+
+def test_marginal_width_grows_with_the_shear_length():
+    assert mhd.marginal_island_width(1.4, 2.0) > \
+        mhd.marginal_island_width(1.4, 0.5)
+
+
+def test_kadomtsev_crash_conserves_helical_flux():
+    """The mixing radius is not a fitted number: it is where the helical
+    flux integral closes, which is what makes the reconnection complete."""
+    rho, q = _iter_q_profile(401)
+    r1, r_mix = mhd.kadomtsev_mixing_radius(rho, q)
+    assert r1 == pytest.approx(np.sqrt(0.15 / 2.35), rel=2e-2)
+    assert r_mix > r1
+    rr = rho[rho <= r_mix]
+    integral = np.trapezoid((1.0 / np.interp(rr, rho, q) - 1.0) * rr, rr)
+    assert abs(integral) < 2e-3
+
+
+def test_no_sawtooth_without_a_q_equals_one_surface():
+    rho = np.linspace(0.0, 1.0, 201)
+    q = 1.6 + 1.8 * rho ** 2          # q0 well above 1
+    r1, r_mix = mhd.kadomtsev_mixing_radius(rho, q)
+    assert r1 == 0.0 and r_mix == 0.0
+
+
+def test_sawtooth_period_is_resistive_not_confinement_scaled():
+    """A confinement-time estimate gives ITER a ~3 s sawtooth; the current
+    has to diffuse back in, which takes tens of seconds."""
+    rho, q = _iter_q_profile()
+    hot = mhd.sawtooth_state(rho, q, tau_e=3.7, te_avg=9.0, a=2.0,
+                             eta_q1=2.0e-9)
+    cold = mhd.sawtooth_state(rho, q, tau_e=3.7, te_avg=9.0, a=2.0,
+                              eta_q1=2.0e-8)
+    assert hot.period_estimate > 10.0
+    assert hot.period_estimate > 5.0 * cold.period_estimate
+
+
+def test_fast_ions_lengthen_the_sawtooth_period():
+    rho, q = _iter_q_profile()
+    plain = mhd.sawtooth_state(rho, q, tau_e=3.7, te_avg=9.0, a=2.0,
+                               eta_q1=2.0e-9, fast_ion_fraction=0.0)
+    burning = mhd.sawtooth_state(rho, q, tau_e=3.7, te_avg=9.0, a=2.0,
+                                 eta_q1=2.0e-9, fast_ion_fraction=0.15)
+    assert burning.period_estimate > plain.period_estimate
+
+
+def test_sawtooth_crash_flattens_without_creating_energy():
+    rho = np.linspace(0.0, 1.0, 201)
+    prof = 20.0 * (1.0 - rho ** 2) ** 1.5 + 1.0
+    before = float(np.trapezoid(prof * rho, rho))
+    after_prof = mhd.apply_sawtooth_crash(rho, prof, r_mix=0.42)
+    after = float(np.trapezoid(after_prof * rho, rho))
+    assert after == pytest.approx(before, rel=1e-2)
+    assert after_prof[0] < prof[0]                 # core flattened
+    assert after_prof[int(0.35 * 200)] > prof[int(0.35 * 200)]
+
+
+def test_elm_mitigation_trades_size_for_frequency_at_constant_power():
+    nat = mhd.elm_state(W_th=325.0, P_sep=100.0, ped_width_psi=0.04,
+                        mitigated=False)
+    mit = mhd.elm_state(W_th=325.0, P_sep=100.0, ped_width_psi=0.04,
+                        mitigated=True)
+    assert mit.energy_loss < nat.energy_loss
+    assert mit.frequency > nat.frequency
+    assert mit.power_to_target == pytest.approx(nat.power_to_target, rel=1e-6)
+
+
+def test_stability_report_names_the_limiting_mode():
+    rho, q = _iter_q_profile()
+    p = 5.0e5 * (1.0 - rho ** 2)
+    rep = mhd.analyse(rho=rho, q=q, p=p, beta_n=1.8, beta_p=0.65, li=0.9,
+                      q95=3.0, R0=6.2, a=2.0, B0=5.3, kappa=1.85, delta=0.48,
+                      tau_e=3.7, te_avg=9.0, W_th=325.0, P_sep=100.0)
+    assert rep.beta_n_ideal_wall > rep.beta_n_no_wall > 0.0
+    assert 0.0 <= rep.first_stable_fraction <= 1.0
+    assert isinstance(rep.limiting_mode, str) and rep.limiting_mode
+    assert rep.to_dict()["ntms"] is not None
+
+
+def test_beta_above_the_ideal_wall_limit_is_reported_as_such():
+    rho, q = _iter_q_profile()
+    p = 5.0e5 * (1.0 - rho ** 2)
+    rep = mhd.analyse(rho=rho, q=q, p=p, beta_n=6.0, beta_p=2.5, li=0.8,
+                      q95=3.0, R0=6.2, a=2.0, B0=5.3, kappa=1.85, delta=0.48,
+                      tau_e=3.7, te_avg=9.0, W_th=325.0, P_sep=100.0)
+    assert rep.c_beta > 1.0
+    assert rep.margin < 1.0
+
+
+def test_simulator_reports_stability_and_can_switch_it_off():
+    on = Simulator(SolverConfig(machine="iter", n_rho=25, equilibrium=False,
+                                disruption_enabled=False, mhd_enabled=True))
+    for _ in range(40):
+        on._scenario_actuators()
+        on.step()
+    assert on.stab is not None
+    d = on.scalars()
+    for key in ("betaN_no_wall", "c_beta", "kink_margin", "vertical_margin",
+                "first_stable_fraction", "limiting_mode", "w_21", "r_q1",
+                "elm_freq", "elm_dW"):
+        assert key in d
+
+    off = Simulator(SolverConfig(machine="iter", n_rho=25, equilibrium=False,
+                                 disruption_enabled=False, mhd_enabled=False))
+    for _ in range(40):
+        off._scenario_actuators()
+        off.step()
+    assert off.stab is None
+
+
+def test_alpha_crit_is_a_solver_option_not_only_a_module_global():
+    """Rebinding a module global is easy to get wrong from the wrong import
+    and then silently do nothing; the calibration has to be reachable."""
+    lo = Simulator(SolverConfig(machine="iter", n_rho=25, equilibrium=False,
+                                disruption_enabled=False, alpha_crit=10.0))
+    hi = Simulator(SolverConfig(machine="iter", n_rho=25, equilibrium=False,
+                                disruption_enabled=False, alpha_crit=18.0))
+    for sim in (lo, hi):
+        while sim.t < 40.0:          # long enough to be in H-mode
+            sim._scenario_actuators()
+            sim.step()
+    assert lo.h_mode and hi.h_mode
+    assert hi.scalars()["Tped"] > lo.scalars()["Tped"] * 1.15

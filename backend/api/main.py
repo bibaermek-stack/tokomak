@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 from tokamak import disruption as disr
 from tokamak import equilibrium as eqm
 from tokamak import fuelcycle as fc
+from tokamak import mhd
 from tokamak import sol as sol_mod
 from tokamak import transport as tr
 from tokamak import validation as val
@@ -118,6 +119,15 @@ class SimulateRequest(BaseModel):
     eq_interval: float = 6.0
     seeding_fraction: Optional[float] = None
     disruption_enabled: bool = True
+    pedestal_model: str = Field("eped", description="eped | anchor")
+    alpha_crit: Optional[float] = Field(
+        None, description="педесталдың баллон шегі; None — үнсіз келісім")
+    mhd_enabled: bool = True
+    sawteeth: bool = True
+    ntm_enabled: bool = True
+    elm_cycle: bool = False
+    eccd_ntm: float = Field(0.0, ge=0.0, le=2.0,
+                            description="j_cd/j_bs 2/1 бетінде")
 
 
 class EquilibriumRequest(BaseModel):
@@ -128,6 +138,29 @@ class EquilibriumRequest(BaseModel):
     q0: Optional[float] = Field(None, description="мақсатты q₀")
     n_r: int = 97
     n_z: int = 145
+
+
+class StabilityRequest(BaseModel):
+    """Stability of one operating point, without running a discharge.
+
+    The point can be given directly (beta_N, li, q profile) or, more
+    usefully, taken from a short simulation of the named machine -- the
+    profiles matter, since the ballooning and tearing drives are both
+    gradient quantities and a made-up q profile answers a made-up question.
+    """
+    machine: str = "iter"
+    override: Optional[MachineOverride] = None
+    t_end: float = Field(60.0, ge=1.0, le=600.0,
+                         description="нүктені алу үшін есептеу ұзақтығы")
+    n_rho: int = 49
+    equilibrium: bool = True
+    eccd_ntm: float = Field(0.0, ge=0.0, le=2.0)
+    mitigated_elms: bool = True
+    seed_island_cm: float = Field(
+        0.0, ge=0.0, le=50.0,
+        description="2/1 бетіне енгізілетін тұқым арал; 0 — енгізілмейді")
+    beta_n_scan: Optional[List[float]] = Field(
+        None, description="осы β_N мәндері бойынша шектерді сканерлеу")
 
 
 class DivertorRequest(BaseModel):
@@ -231,7 +264,11 @@ def simulate(req: SimulateRequest) -> dict:
         h_factor=req.h_factor, n_rho=req.n_rho,
         equilibrium=req.equilibrium, eq_interval=req.eq_interval,
         seeding_fraction=req.seeding_fraction,
-        disruption_enabled=req.disruption_enabled)
+        disruption_enabled=req.disruption_enabled,
+        pedestal_model=req.pedestal_model, alpha_crit=req.alpha_crit,
+        mhd_enabled=req.mhd_enabled, sawteeth=req.sawteeth,
+        ntm_enabled=req.ntm_enabled, elm_cycle=req.elm_cycle,
+        eccd_ntm=req.eccd_ntm)
     sim = Simulator(cfg, machine=m)
     trace = sim.run_scenario(t_end=req.t_end, record_every=req.record_every)
     out = {
@@ -244,6 +281,8 @@ def simulate(req: SimulateRequest) -> dict:
         "alarms": sim.alarms,
         "caveat": val.NOT_VALIDATED[0],
     }
+    if sim.stab is not None:
+        out["stability"] = sim.stab.to_dict()
     if sim.disruption is not None:
         out["disruption"] = sim.disruption.to_dict()
     return jsonable(out)
@@ -279,6 +318,64 @@ def compare(req: CompareRequest) -> dict:
     return jsonable({"rows": rows, "confinement_model": req.confinement_model,
                      "lh_model": req.lh_model,
                      "density_fraction": req.density_fraction})
+
+
+@app.post("/stability")
+def stability(req: StabilityRequest) -> dict:
+    """МГД тұрақтылығы: Тройон/RWM шектері, баллондық шекара, NTM, пилообразный, ELM."""
+    m = _resolve_machine(req.machine, req.override)
+    cfg = SolverConfig(machine=req.machine, n_rho=req.n_rho,
+                       equilibrium=req.equilibrium, eq_interval=8.0,
+                       disruption_enabled=False, eccd_ntm=req.eccd_ntm,
+                       mhd_enabled=True)
+    sim = Simulator(cfg, machine=m)
+    while sim.t < req.t_end:
+        sim._scenario_actuators()
+        sim.step()
+    if sim.stab is None:
+        raise HTTPException(500, "тұрақтылық есептелмеді")
+
+    out = {
+        "machine": m.to_dict(),
+        "point": {k: sim.scalars()[k] for k in
+                  ("t", "Ip", "betaN", "betaP", "li", "q0", "q95", "Wth",
+                   "Psep", "tauE", "Te")},
+        "stability": sim.stab.to_dict(),
+        "profiles": {"rho": sim.grid.rho.tolist(),
+                     "q": sim.q_prof.tolist(),
+                     "shear": sim.stab.shear.tolist(),
+                     "alpha": sim.stab.alpha.tolist(),
+                     "alpha_crit": sim.stab.alpha_crit.tolist()},
+        "alarms": sim.alarms,
+    }
+
+    # what a seed island of the requested size would do: below the seed
+    # threshold it heals, above it the mode runs away to its saturated width
+    if req.seed_island_cm > 0:
+        seeded = []
+        for ntm in sim.stab.ntms:
+            w0 = req.seed_island_cm / 100.0
+            seeded.append({"mode": ntm.key, "seed_m": w0,
+                           "seed_threshold_m": ntm.seed_threshold(),
+                           "dwdt_at_seed": ntm.dwdt(w0),
+                           "grows": bool(ntm.dwdt(w0) > 0.0),
+                           "saturated_m": ntm.saturated_width()})
+        out["seeded"] = seeded
+
+    if req.beta_n_scan:
+        scan = []
+        li = sim.li
+        no_wall = mhd.troyon_limit(li)
+        ideal = mhd.wall_stabilised_limit(no_wall)
+        for bn in req.beta_n_scan:
+            scan.append({
+                "beta_n": bn,
+                "troyon_fraction": bn / max(no_wall, 1e-6),
+                "c_beta": mhd.rwm_margin(bn, no_wall, ideal),
+                "no_wall_limit": no_wall,
+                "ideal_wall_limit": ideal})
+        out["beta_n_scan"] = scan
+    return jsonable(out)
 
 
 @app.post("/divertor")

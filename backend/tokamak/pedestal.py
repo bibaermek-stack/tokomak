@@ -26,9 +26,12 @@ the well-known consequence falls out rather than being assumed:
 validated against, not just the ITER number it is calibrated to.
 
 ``C_w = 0.076`` is EPED1's published width coefficient.  ``ALPHA_CRIT`` is
-calibrated once, on ITER's expected pedestal, because the ballooning
-threshold depends on the local magnetic shear and flux-surface shaping,
-which a 0-D reduction of the pedestal cannot resolve.
+calibrated once, in the full 1.5-D chain on ITER's Q = 10 point, because
+the ballooning threshold depends on the local magnetic shear and
+flux-surface shaping, which a 0-D reduction of the pedestal cannot
+resolve.  What that calibration absorbs is written out in full at the
+constant itself -- it is one named, measured residual, not a free
+parameter.
 """
 
 from __future__ import annotations
@@ -47,18 +50,49 @@ C_W = 0.076
 #: 15 MA with n_ped = 0.75e20 returns T_ped = 4.5 keV -- the value its
 #: pedestal predictions cluster around.
 #:
-#: Do not compare it with the textbook s-alpha threshold of 2-4: that is
-#: written with the local minor radius and dp/dpsi, while this uses the
-#: major radius, q95 and dp/dr across the pedestal width.  Evaluating
-#: ITER's own expected pedestal (p = 100 kPa over 3.8 cm) in this
-#: normalisation gives 13.3, so the calibration is telling us the
-#: normalisations differ by about a factor of four, not that ITER's
-#: pedestal is four times more unstable than theory allows.
+#: An earlier comment here claimed the value was large because this
+#: normalisation differs from the textbook s-alpha one.  It does not: this
+#: is the same alpha = -(2 mu0 R q^2 / B^2) dp/dr.  The real reason is
+#: physical and more interesting.  The circular first-stability boundary
+#: sits near alpha ~ 1-2, and ITER's pedestal is at 13 -- because strong
+#: triangularity connects the first and second stable regions, so a shaped
+#: pedestal climbs straight past the first-stability boundary into the
+#: second stable region.  That is why shaping buys pedestal height, and it
+#: is why ``mhd.ballooning_alpha_crit`` is documented as marking
+#: "not first-stable" rather than "unstable".
 #:
 #: What is NOT calibrated is the scaling: with the width constraint closing
 #: on the gradient limit, p_ped ~ Ip^2 falls out, and the validation suite
 #: measures that exponent rather than trusting it.
-ALPHA_CRIT = 13.40
+#:
+#: CALIBRATED IN-CHAIN, AND CARRYING ONE KNOWN RESIDUAL.
+#: The value is set by running the full 1.5-D solve to a stationary burn
+#: and asking for ITER's Q = 10 point, not by a standalone pedestal
+#: solve -- so it necessarily absorbs whatever error the rest of the chain
+#: brings to the pedestal.  There is exactly one such error and it is not
+#: hidden here:
+#:
+#:   * The fixed-boundary Grad-Shafranov solve returns q95 = 3.126 where
+#:     ITER's free-boundary equilibrium gives 3.00 (+4.2%), because there
+#:     is no X-point in a fixed-boundary solve.
+#:   * This module has p_ped ~ q95^-4 and T_ped ~ alpha_crit^2 (both
+#:     measured, see ``scaling_exponent``), so the q95 residual costs
+#:     T_ped a factor (3.126/3.00)^-4 = 0.848 and recovering it costs
+#:     alpha_crit a factor (3.126/3.00)^2 = 1.086.
+#:   * 13.40 x 1.086 = 14.55, against the 14.45 the in-chain calibration
+#:     actually lands on.  So the recalibration is the q95 residual and
+#:     nothing else -- the 0.7% left over is the chain's own feedback.
+#:
+#: The distinction from a fudge factor matters, and this package has
+#: already been bitten by the difference: ``Q95_XPOINT`` in
+#: :mod:`tokamak.equilibrium` was once set to 1.109 to close a q95 gap
+#: that turned out to be an over-smoothed spline, and the constant made
+#: the bug invisible for as long as it stood.  A calibration is legitimate
+#: when the quantity it absorbs is measured, named, and still reported --
+#: q95 stays a separate validation check at its true +4.2%, and it is not
+#: quietly corrected anywhere.  A calibration is a fudge when it makes the
+#: residual disappear from view.
+ALPHA_CRIT = 14.45
 
 
 @dataclass
@@ -80,8 +114,8 @@ class Pedestal:
 def solve(*, R0: float, a: float, kappa_a: float, B0: float, Ip: float,
           q95: float, n_ped20: float, f_ion: float = 0.87,
           L_pol: Optional[float] = None,
-          alpha_crit: float = ALPHA_CRIT,
-          c_w: float = C_W, max_iter: int = 80) -> Pedestal:
+          alpha_crit: Optional[float] = None,
+          c_w: Optional[float] = None, max_iter: int = 80) -> Pedestal:
     """Solve the coupled width / ballooning-limit pair for the pedestal.
 
     Parameters
@@ -95,6 +129,12 @@ def solve(*, R0: float, a: float, kappa_a: float, B0: float, Ip: float,
     pedestal measurements show: the two species are collisional enough at
     the pedestal top to equilibrate.
     """
+    # Resolve the calibration constants at call time, not at import time:
+    # binding them as default arguments freezes them, so a caller that
+    # rebinds the module constant to explore the calibration silently gets
+    # the original value back.
+    alpha_crit = ALPHA_CRIT if alpha_crit is None else alpha_crit
+    c_w = C_W if c_w is None else c_w
     if L_pol is None:
         L_pol = 2.0 * np.pi * a * np.sqrt((1.0 + kappa_a ** 2) / 2.0)
     B_pol = MU0 * Ip * 1e6 / L_pol
