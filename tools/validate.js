@@ -16,6 +16,10 @@
 'use strict';
 
 const path = require('path');
+
+/* Pin the shot number: the model jitters ELM losses per shot, which is
+   right for a discharge and wrong for a validation table. */
+const SHOT = 84217;
 const Tokamak = require(path.join(__dirname, '..', 'js', 'physics.js'));
 
 /* --------------------------------------------------------------------------
@@ -80,7 +84,7 @@ const MACHINE_REF = {
 
 /* -------------------------------------------------------------------------- */
 function runBurn(key, seconds) {
-  const p = new Tokamak(key);
+  const p = new Tokamak(key, SHOT);
   const dt = 0.01, n = Math.round(seconds / dt);
   for (let i = 0; i < n; i++) p.step(dt);
   return p;
@@ -89,7 +93,7 @@ function runBurn(key, seconds) {
 /* Average over a stretch of the burn so the ELM cycle does not decide the
    answer.  Returns the mean of every scalar field. */
 function burnAverage(key, t0, t1) {
-  const p = new Tokamak(key);
+  const p = new Tokamak(key, SHOT);
   const dt = 0.01;
   for (let i = 0; i < t0 / dt; i++) p.step(dt);
   const acc = {}; let n = 0;
@@ -139,11 +143,11 @@ function iterTable() {
 function crossTable() {
   const out = [];
   for (const key of ['iter', 't15md', 'nstx', 'ktm']) {
-    const M = new Tokamak(key).M;
+    const M = new Tokamak(key, SHOT).M;
     const ref = MACHINE_REF[key];
     /* the L-H threshold and the IPB98 prediction at each machine's own
        reference density and heating power */
-    const p = new Tokamak(key);
+    const p = new Tokamak(key, SHOT);
     p.autoPilot = false;
     p.Ip = M.IpNom; p.ne = 0.5 * M.IpNom / (Math.PI * M.a * M.a);
     p.Te = 2; p.Ti = 2; p.hMode = true;
