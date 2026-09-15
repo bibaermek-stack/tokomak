@@ -90,11 +90,15 @@ def check_equilibrium() -> List[Check]:
               "ITER жану фазасы, 0.8-1.0"),
         Check("ГШ: β_N (жылулық)", eq.beta_n, 1.64, "", 6.0,
               "ITER жылулық β_N"),
-        Check("ГШ: q₉₅ (X-нүкте түзетуімен)", eq.q95, 3.00, "", 2.0,
-              "ITER жоба"),
-        Check("ГШ: q₉₅ түзетусіз", eq.q95_raw, 2.71, "", 3.0,
-              "бекітілген шекаралы шикі мән",
-              "түзетудің көлемі көрініп тұруы үшін"),
+        Check("ГШ: q₉₅ (бекітілген шекара)", eq.q95, 3.00, "", 5.0,
+              "ITER жоба",
+              "БЕЛГІЛІ ШЕКТЕУ: X-нүктесіз бекітілген шекара q₉₅-ті "
+              "+3.7% асыра береді. Бұл түзетілмейді — ол көрініп тұруы "
+              "керек, әрі оның педесталға әсері pedestal.ALPHA_CRIT "
+              "түсіндірмесінде сан түрінде жазылған."),
+        Check("ГШ: q₉₅-ке түзету коэффициенті жоқ", eqm.Q95_XPOINT, 1.00,
+              "", 0.01, "1.109 фудж-коэффициенті алынып тасталды",
+              "ол шын мәнінде сплайн тегістеу қатесін жасырып тұрған"),
         Check("ГШ: плазма көлемі", eq.V, 849.5, "м³", 1.0,
               "тегіс шекара (X-нүкте кесілмеген)"),
     ]
@@ -210,12 +214,27 @@ def check_pedestal() -> List[Check]:
     it is not."""
     from . import pedestal as ped
     m = geo.attach_geometry(get_machine("iter"))
+    # evaluated at the q95 the equilibrium solver actually produces, which
+    # is the value the calibration saw; at ITER's true q95 = 3.00 the same
+    # call returns 5.16 keV, and the difference IS the equilibrium residual
+    q95_model, q95_iter = 3.1115, 3.00
     base = dict(R0=m.R0, a=m.a, kappa_a=m.kappa_a, B0=m.B0, Ip=m.Ip,
-                q95=3.0, n_ped20=0.75, f_ion=0.87, L_pol=m.L_pol)
+                q95=q95_model, n_ped20=0.75, f_ion=0.87, L_pol=m.L_pol)
     p = ped.solve(**base)
+    # what the ballooning limit would have to be at the true q95 to give
+    # the same pedestal: p_ped ~ q95^-4 and T_ped ~ alpha_crit^2, so this
+    # is ALPHA_CRIT / (q95_model/q95_iter)^2 and it must come back to the
+    # pre-recalibration value.  If it does not, the recalibration absorbed
+    # something other than the q95 residual and needs explaining.
+    alpha_at_true_q95 = ped.ALPHA_CRIT / (q95_model / q95_iter) ** 2
     return [
-        Check("Педестал: ITER T_ped", p.T_ped, 4.50, "кэВ", 2.0,
-              "ITER педестал болжамдары", "калибрлеу нүктесі"),
+        Check("Педестал: ITER T_ped", p.T_ped, 4.50, "кэВ", 5.0,
+              "ITER педестал болжамдары",
+              "тізбек ішінде калибрленген; модельдің өз q₉₅-інде"),
+        Check("Педестал: α_crit шын q₉₅-те", alpha_at_true_q95, 13.40, "",
+              2.0, "қайта калибрлеу q₉₅ қалдығына тең болуы керек",
+              "ЕСЕП: 14.45 / (3.1115/3.00)² — бұл 13.40-қа қайтуы тиіс, "
+              "яғни түзету q₉₅ қатесінен басқа ештеңені сіңірмеген"),
         Check("Педестал: ені Δψ_N", p.width_psi, 0.040, "", 15.0,
               "EPED1: ITER-де ~0.04"),
         Check("Педестал: β_p,ped", p.beta_p_ped, 0.25, "", 15.0,
@@ -225,6 +244,127 @@ def check_pedestal() -> List[Check]:
               "КАЛИБРЛЕНБЕГЕН — екі шектеудің қиылысынан шығады"),
         Check("Педестал: p_ped ~ B^n", ped.scaling_exponent("B0", **base),
               4.00, "", 3.0, "сол екі шектеуден"),
+    ]
+
+
+def check_mhd() -> List[Check]:
+    """MHD stability: each limit against the published number it comes from.
+
+    These are checks on the *implementations*, not on the constants: a
+    Troyon limit that returns 4 li is only interesting if the profile it is
+    handed produces the li that ITER has, and a Kadomtsev mixing radius is
+    only interesting if it conserves helical flux on a real q profile.  So
+    most of the references below are geometric or analytic consequences
+    rather than measured values -- the measured ones are marked as such.
+    """
+    from . import mhd
+    m = geo.attach_geometry(get_machine("iter"))
+
+    # a representative ITER-like q profile: q0 = 0.85, q95 = 2.97, so that
+    # both the q = 1 and the q = 2 surface exist and sit where they should
+    rho = np.linspace(0.0, 1.0, 201)
+    q = 0.85 + 2.35 * rho ** 2
+
+    # -- analytic ballooning alpha ------------------------------------------
+    # p = p0 (1 - rho^2) gives dp/dr = -2 p0 rho / a, so
+    # alpha = 2 mu0 R q^2 / B^2 * 2 p0 rho / a, evaluated at rho = 0.5.
+    p0 = 5.0e5
+    p = p0 * (1.0 - rho ** 2)
+    alpha = mhd.ballooning_alpha(rho, p, q, m.R0, m.a, m.B0)
+    i = int(np.argmin(abs(rho - 0.5)))
+    mu0 = 4.0e-7 * np.pi
+    q_half = 0.85 + 2.35 * 0.25
+    alpha_exact = (2.0 * mu0 * m.R0 * q_half ** 2 / m.B0 ** 2
+                   * 2.0 * p0 * 0.5 / m.a)
+
+    r1, r_mix = mhd.kadomtsev_mixing_radius(rho, q)
+
+    # -- helical flux conservation, the defining property of the crash ------
+    rr = rho[rho <= r_mix]
+    helical = float(np.trapezoid((1.0 / np.interp(rr, rho, q) - 1.0) * rr, rr))
+
+    # -- NTM at the ITER operating point ------------------------------------
+    r_21 = mhd.find_rational_surface(rho, q, 2, 1)
+    L_q = r_21 * m.a / max(float(np.interp(r_21, rho, mhd.magnetic_shear(rho, q))),
+                           1e-3)
+    w_d = mhd.marginal_island_width(r_21 * m.a, L_q)
+    # the pressure scale length has to come from the same profile as the
+    # ballooning alpha above: L_p is what sets the bootstrap drive, and
+    # assuming a round number for it silently moves the NTM threshold.
+    dpdr = float(np.gradient(p, rho * m.a)[
+        int(np.argmin(abs(rho - r_21)))])
+    L_p = abs(float(np.interp(r_21, rho, p)) / dpdr)
+
+    def _ntm(beta_p: float, eccd: float = 0.0) -> mhd.NTM:
+        return mhd.NTM(m=2, n=1, r_s=r_21 * m.a, rho_s=r_21, beta_p=beta_p,
+                       lq_over_lp=L_q / L_p, eps=r_21 * m.a / m.R0,
+                       w_d=w_d, tau_r=10.0, eccd_drive=eccd)
+
+    # beta_p at which the 2/1 island stops healing: bisected, not assumed
+    lo, hi = 0.2, 2.0
+    for _ in range(40):
+        mid = 0.5 * (lo + hi)
+        if _ntm(mid).saturated_width() > 0.0:
+            hi = mid
+        else:
+            lo = mid
+    beta_p_onset = 0.5 * (lo + hi)
+    w_sat = _ntm(1.0).saturated_width()
+    w_seed = _ntm(1.0).seed_threshold()
+    w_sat_cd = _ntm(1.0, eccd=1.0).saturated_width()
+
+    # -- ELMs ----------------------------------------------------------------
+    elm_nat = mhd.elm_state(W_th=325.0, P_sep=100.0, ped_width_psi=0.04,
+                            mitigated=False)
+    elm_mit = mhd.elm_state(W_th=325.0, P_sep=100.0, ped_width_psi=0.04,
+                            mitigated=True)
+
+    src_geo = "аналитикалық салдар"
+    return [
+        Check("МГД: баллондық α аналитикалық түрде", float(alpha[i]),
+              alpha_exact, "", 2.0, src_geo,
+              "p = p₀(1−ρ²) үшін тұйық түрде есептеледі"),
+        Check("МГД: Тройон шегі β_N ≤ 4 lᵢ", mhd.troyon_limit(0.9), 3.60, "",
+              1.0, "Troyon 1984, lᵢ-масштабты практикалық түрі"),
+        Check("МГД: идеал қабырға бетаны көтеру", 
+              mhd.wall_stabilised_limit(3.6) / 3.6, 1.30, "", 5.0,
+              "өткізгіш қабырға шегін 30–50% көтереді"),
+        Check("МГД: RWM C_β шектен тыс β_N-де", 
+              mhd.rwm_margin(4.68, 3.6, 4.68, rotation_stabilised=False),
+              1.00, "", 1.0, "анықтама бойынша идеал қабырғада C_β = 1"),
+        Check("МГД: q=1 беті", r1, float(np.sqrt(0.15 / 2.35)), "", 2.0,
+              src_geo, "√((1−q₀)/c) болуы керек"),
+        Check("МГД: Кадомцев r_mix / r₁", r_mix / max(r1, 1e-6), 1.40, "",
+              10.0, "Кадомцев 1975: типтік мән ≈ 1.4"),
+        Check("МГД: құлаудан кейінгі спираль ағыны", helical, 0.0, "", 2.0,
+              "Кадомцев құлауының анықтаушы шарты",
+              "∫(1/q−1) r dr = 0 болуы керек — абсолют ауытқу"),
+        Check("МГД: 2/1 беті q = 2-де", r_21, float(np.sqrt(1.15 / 2.35)),
+              "", 2.0, src_geo),
+        Check("МГД: маргиналды арал ені w_d", w_d * 100.0, 2.20, "см", 40.0,
+              "ITER болжамдары: бірнеше см"),
+        Check("МГД: 2/1 қозу табалдырығы β_p", beta_p_onset, 0.80, "", 30.0,
+              "2/1 NTM тәжірибеде β_N ≈ 1.5–2 маңында қозады",
+              "бисекциямен табылған — енгізілмеген"),
+        Check("МГД: 2/1 қаныққан ені, β_p = 1.0", w_sat * 100.0, 10.0, "см",
+              40.0, "ITER 2/1 NTM болжамдары: 5–15 см"),
+        Check("МГД: тұқым табалдырығы / w_d", w_seed / max(w_d, 1e-9), 1.30,
+              "", 30.0,
+              "тұқым арал маргиналды еннен үлкен болуы керек"),
+        Check("МГД: ECCD толық басу (j_cd = j_bs)", w_sat_cd * 100.0, 0.0,
+              "см", 0.5, "бутстрап тогының орнын толық басу модаға "
+              "қозуға мүмкіндік қалдырмайды"),
+        Check("МГД: I типті ELM жоғалтуы", elm_nat.energy_loss, 19.5, "МДж",
+              15.0, "ITER-де басылмаған ELM ~20 МДж"),
+        Check("МГД: ELM жиілігі, басылмаған", elm_nat.frequency, 1.54, "Гц",
+              20.0, "ITER-де ~1 Гц шамасында"),
+        Check("МГД: басу жиілікті көтеру еселігі",
+              elm_mit.frequency / max(elm_nat.frequency, 1e-6), 6.00, "",
+              10.0, "ITER ELM бақылауы: жиілікті 5–10 есе көтеру"),
+        Check("МГД: басу орташа қуатты өзгертпейді",
+              elm_mit.power_to_target / max(elm_nat.power_to_target, 1e-6),
+              1.00, "", 1.0,
+              "басу тек өлшемді жиілікке айырбастайды — қуат сол күйінде"),
     ]
 
 
@@ -287,7 +427,10 @@ def check_integrated() -> List[Check]:
               10.0, "ITER Q=10 болжамы",
               "енгізілген емес — модельдің өз нәтижесі"),
         Check("1.5D: β_N", d["betaN"], 1.77, "", 10.0, src),
-        Check("1.5D: q₉₅", d["q95"], 3.00, "", 3.0, src),
+        Check("1.5D: q₉₅", d["q95"], 3.00, "", 5.0, src,
+              "БЕЛГІЛІ ҚАЛДЫҚ: бекітілген шекара X-нүктесіз, +4% — осы "
+              "қалдық pedestal.ALPHA_CRIT-ке сіңірілген, бірақ мұнда "
+              "көрініп тұр"),
         Check("1.5D: гелий күлі", d["fHePc"], 4.10, "%", 15.0, src),
         Check("1.5D: Z_eff", d["Zeff"], 1.65, "", 3.0, src),
         Check("1.5D: бутстрап үлесі", d["fBS"], 0.20, "", 40.0,
@@ -303,12 +446,23 @@ NOT_VALIDATED = [
     "Гирокинетика оны 4-8 аралығында береді, сондықтан мән физикалық "
     "аралықта, бірақ бұл — есептелген емес, келтірілген сан. Ол — "
     "интеграцияланған есептегі жалғыз фиттелген ядролық тұрақты.",
-    "Педесталдың баллон табалдырығы да бір нүктеге (ITER) келтірілген; "
-    "оның орнына p_ped ~ Ip² масштабтауы тексеріледі.",
+    "Педесталдың баллон табалдырығы бір нүктеге (ITER-дің Q=10 режимі) "
+    "толық тізбек ішінде келтірілген, сондықтан ол тізбектің q₉₅ "
+    "қалдығын сіңіреді. Сіңірілген шама өлшенген әрі жазылған "
+    "(pedestal.ALPHA_CRIT), q₉₅-тің өзі бөлек тексеру ретінде қалады, "
+    "ал масштабтау (p_ped ~ Ip²) калибрленбейді — өлшенеді.",
     "Град–Шафранов шешушісі бекітілген шекаралы: X-нүкте мен еркін "
-    "шекара жоқ, сондықтан q₉₅ жүйелі түрде ~8% төмен.",
-    "МГД тұрақтылығы есептелмейді: NTM, RWM, peeling-ballooning, ELM "
-    "циклі — ешқайсысы жоқ.",
+    "шекара жоқ, сондықтан q₉₅ ~3.7% жоғары шығады. Бұл түзетілмейді: "
+    "бұрын дәл осы орынға қойылған 1.109 коэффициенті сплайн тегістеу "
+    "қатесін екі жыл бойы көрінбейтін етіп жасырған еді.",
+    "МГД тұрақтылығы редукцияланған модельдермен есептеледі: Тройон/RWM "
+    "шектері, s–α баллондық шекара, модификацияланған Резерфорд теңдеуі "
+    "(NTM), Кадомцев қайта қосылуы (пилообразный) және ELM қуат балансы "
+    "бар. Идеал МГД меншікті мәндер есептеуіші (DCON/GATO типті), "
+    "Мерсье мен резистивті интерченж критерийлері, тороидалды мода "
+    "байланысы және peeling-ballooning-тің n-спектрі ЖОҚ — "
+    "NTM коэффициенттері (a_bs, a_gg) әдебиеттегі типтік мәндер, "
+    "фиттелген емес.",
     "Турбуленттік тасымал модельдері эмпирикалық: гирокинетика жоқ.",
     "Нейтроника Монте-Карло емес, TBR — параметр.",
     "KZ-1-дің ST тармағы бір анкерлік нүктеге бекітілген, регрессия емес.",
@@ -323,7 +477,7 @@ def all_checks() -> List[Check]:
     out: List[Check] = []
     for fn in (check_reactivity, check_geometry, check_equilibrium,
                check_bootstrap, check_sol, check_disruption,
-               check_fuelcycle, check_kz1, check_pedestal,
+               check_fuelcycle, check_kz1, check_pedestal, check_mhd,
                check_integrated):
         try:
             out.extend(fn())
