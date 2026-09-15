@@ -408,9 +408,17 @@
 
   function frame(now) {
     requestAnimationFrame(frame);
+    /* Clamp to a sane frame delta. The upper bound keeps a backgrounded
+       tab from integrating one huge step; the lower bound matters just as
+       much: the first frame after the synchronous boot work can carry a
+       timestamp from before it, so `raw` comes back negative (about -15 s
+       on a software renderer). Passed on, that single frame poisons every
+       accumulator downstream -- the diagnostic history needs ~300 frames
+       just to climb back to zero, so the strip charts stay empty for the
+       whole discharge. */
     const raw = (now - last) / 1000;
     last = now;
-    const dt = Math.min(raw, 0.05);
+    const dt = Math.min(Math.max(raw, 0), 0.05);
     t += dt;
 
     /* the plasma keeps evolving during the landing shot so the glow lives,
