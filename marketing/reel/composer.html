@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="kk">
+<head>
+<meta charset="utf-8">
+<title>SINTEZ reel composer</title>
+<style>
+/* Fonts come from @fontsource (npm), so this page renders identically
+   wherever it is built -- here and in the Higgsfield sandbox. */
+@font-face{font-family:M;font-weight:500;src:url(node_modules/@fontsource/montserrat/files/montserrat-cyrillic-ext-500-normal.woff2) format('woff2');unicode-range:U+0460-052F,U+1C80-1C88,U+20B4,U+2DE0-2DFF,U+A640-A69F,U+FE2E-FE2F}
+@font-face{font-family:M;font-weight:500;src:url(node_modules/@fontsource/montserrat/files/montserrat-cyrillic-500-normal.woff2) format('woff2');unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
+@font-face{font-family:M;font-weight:500;src:url(node_modules/@fontsource/montserrat/files/montserrat-latin-500-normal.woff2) format('woff2');unicode-range:U+0000-00FF,U+2000-206F,U+2190-21FF,U+2212}
+@font-face{font-family:M;font-weight:600;src:url(node_modules/@fontsource/montserrat/files/montserrat-cyrillic-ext-600-normal.woff2) format('woff2');unicode-range:U+0460-052F,U+1C80-1C88,U+20B4,U+2DE0-2DFF,U+A640-A69F,U+FE2E-FE2F}
+@font-face{font-family:M;font-weight:600;src:url(node_modules/@fontsource/montserrat/files/montserrat-cyrillic-600-normal.woff2) format('woff2');unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
+@font-face{font-family:M;font-weight:600;src:url(node_modules/@fontsource/montserrat/files/montserrat-latin-600-normal.woff2) format('woff2');unicode-range:U+0000-00FF,U+2000-206F,U+2190-21FF,U+2212}
+@font-face{font-family:M;font-weight:700;src:url(node_modules/@fontsource/montserrat/files/montserrat-cyrillic-ext-700-normal.woff2) format('woff2');unicode-range:U+0460-052F,U+1C80-1C88,U+20B4,U+2DE0-2DFF,U+A640-A69F,U+FE2E-FE2F}
+@font-face{font-family:M;font-weight:700;src:url(node_modules/@fontsource/montserrat/files/montserrat-cyrillic-700-normal.woff2) format('woff2');unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
+@font-face{font-family:M;font-weight:700;src:url(node_modules/@fontsource/montserrat/files/montserrat-latin-700-normal.woff2) format('woff2');unicode-range:U+0000-00FF,U+2000-206F,U+2190-21FF,U+2212}
+@font-face{font-family:M;font-weight:800;src:url(node_modules/@fontsource/montserrat/files/montserrat-cyrillic-ext-800-normal.woff2) format('woff2');unicode-range:U+0460-052F,U+1C80-1C88,U+20B4,U+2DE0-2DFF,U+A640-A69F,U+FE2E-FE2F}
+@font-face{font-family:M;font-weight:800;src:url(node_modules/@fontsource/montserrat/files/montserrat-cyrillic-800-normal.woff2) format('woff2');unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
+@font-face{font-family:M;font-weight:800;src:url(node_modules/@fontsource/montserrat/files/montserrat-latin-800-normal.woff2) format('woff2');unicode-range:U+0000-00FF,U+2000-206F,U+2190-21FF,U+2212}
+@font-face{font-family:S;font-style:italic;font-weight:400;src:url(node_modules/@fontsource/noto-serif/files/noto-serif-latin-400-italic.woff2) format('woff2');unicode-range:U+0000-00FF,U+2000-206F}
+@font-face{font-family:S;font-style:italic;font-weight:400;src:url(node_modules/@fontsource/noto-serif/files/noto-serif-greek-400-italic.woff2) format('woff2');unicode-range:U+0370-03FF}
+@font-face{font-family:S;font-style:italic;font-weight:400;src:url(node_modules/@fontsource/noto-serif/files/noto-serif-cyrillic-400-italic.woff2) format('woff2');unicode-range:U+0400-045F}
+@font-face{font-family:S;font-style:italic;font-weight:400;src:url(node_modules/@fontsource/noto-serif/files/noto-serif-latin-ext-400-italic.woff2) format('woff2');unicode-range:U+0100-024F,U+1E00-1EFF,U+2070-209F,U+2200-22FF}
+
+:root{
+  --bg:#030812; --navy:#0d122a; --ink:#f5f8fc; --ink2:#a9b6c9; --ink3:#6e7d94;
+  --accent:#6fd2ff; --btn:#7ccffe; --btn-ink:#0a1530;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;background:var(--bg);overflow:hidden}
+body{font-family:M,'DejaVu Sans',sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+#stage{position:relative;width:1080px;height:1920px;overflow:hidden;background:var(--bg)}
+.layer{position:absolute;inset:0}
+.bg{position:absolute;left:0;top:0;width:1080px;height:1920px;object-fit:cover;opacity:0}
+#shade{background:linear-gradient(to bottom,rgba(3,8,18,0) 42%,rgba(3,8,18,.72) 62%,rgba(3,8,18,.94) 80%,#030812 90%)}
+#uibg{background:radial-gradient(ellipse 90% 60% at 50% 30%,#0b1430 0%,#050b1a 55%,#030812 100%);opacity:0}
+
+/* text beats */
+.beat{position:absolute;left:66px;right:66px;opacity:0;will-change:transform,opacity}
+.eyebrow{display:flex;align-items:center;gap:18px;font-weight:600;font-size:27px;letter-spacing:.26em;
+  text-transform:uppercase;color:var(--accent);margin-bottom:26px}
+.eyebrow::before{content:"";display:block;width:44px;height:3px;background:var(--accent);border-radius:2px}
+.hook{font-weight:800;font-size:104px;line-height:1.02;letter-spacing:-.01em;text-transform:uppercase}
+.head{font-weight:700;font-size:82px;line-height:1.1;letter-spacing:-.012em}
+.acc{color:var(--accent)}
+
+/* floating formulas */
+.fx{position:absolute;opacity:0;text-align:center;white-space:nowrap}
+.fx b{display:block;font-family:S,serif;font-style:italic;font-weight:400;font-size:40px;color:rgba(245,248,252,.92);
+  text-shadow:0 0 18px rgba(0,0,0,.6)}
+.fx i{display:block;font-style:normal;font-weight:700;font-size:13px;letter-spacing:.22em;color:rgba(245,248,252,.55);margin-top:4px}
+
+/* UI cards */
+.cards{position:absolute;left:60px;width:960px;opacity:0}
+.card{border-radius:22px;overflow:hidden;border:1px solid rgba(111,210,255,.16);
+  box-shadow:0 30px 60px -30px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.02) inset;background:#070d1f;margin-bottom:28px}
+.card img{display:block;width:100%}
+#railwin{position:absolute;left:60px;top:640px;width:960px;height:1280px;overflow:hidden;opacity:0;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 70px,#000 88%,transparent 100%)}
+#rail{position:absolute;left:0;top:0;width:960px}
+
+/* end card */
+#cta{position:absolute;inset:0;opacity:0;text-align:center;
+  background:radial-gradient(ellipse 85% 55% at 50% 40%,#101838 0%,#0a1128 38%,#060c1b 70%,#040710 100%)}
+#cta .mark{position:absolute;left:0;right:0;top:420px;font-weight:800;font-size:150px;letter-spacing:.02em;line-height:1}
+#cta .sub{position:absolute;left:0;right:0;top:612px;font-weight:600;font-size:35px;letter-spacing:.24em;color:var(--ink2)}
+#cta .q{position:absolute;left:0;right:0;top:780px;font-weight:700;font-size:64px;line-height:1.24}
+#cta .chips{position:absolute;left:0;right:0;top:1030px;display:flex;justify-content:center;gap:22px}
+#cta .chip{border:2px solid rgba(255,255,255,.34);border-radius:999px;padding:18px 34px;font-weight:600;font-size:33px}
+#cta .btn{position:absolute;left:50%;top:1172px;transform:translateX(-50%);width:640px;padding:34px 20px;
+  background:var(--btn);color:var(--btn-ink);border-radius:20px;font-weight:700;font-size:47px;line-height:1.24}
+#cta .handle{position:absolute;left:0;right:0;top:1428px;font-weight:700;font-size:52px}
+</style>
+</head>
+<body>
+<div id="stage">
+  <img class="bg" id="bgA" alt=""><img class="bg" id="bgB" alt="">
+  <div class="layer" id="uibg"></div>
+  <div class="layer" id="shade"></div>
+  <div class="layer" id="fxs"></div>
+
+  <div class="cards" id="cards3" style="top:640px"></div>
+  <div id="railwin"><img id="rail" alt=""></div>
+
+  <div class="beat" id="b0" style="top:1060px"></div>
+  <div class="beat" id="b1" style="top:1080px"></div>
+  <div class="beat" id="b2" style="top:1080px"></div>
+  <div class="beat" id="b3" style="top:230px"></div>
+  <div class="beat" id="b4" style="top:230px"></div>
+
+  <div id="cta"></div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ copy
+   Everything the viewer reads, in one place. The brand block mirrors the
+   reference ad's end card; change it here if the ad runs under another name. */
+const BRAND = {
+  eyebrow: '3DLABWEB · ЖҰМЫС ҮЛГІСІ',
+  mark: ['3D', 'LAB', 'WEB'],            // middle part in the accent colour
+  sub: 'САЙТ ЖАСАУҒА ТАПСЫРЫС',
+  question: 'Сізге де осындай<br>сайт керек пе?',
+  chips: ['3D сайттар', 'Веб-платформалар'],
+  button: 'Тапсырыс үшін<br>Direct-ке жазыңыз',
+  handle: '@3dlabweb'
+};
+const BEATS = [
+  { id: 'b0', t: 0,  eyebrow: BRAND.eyebrow, cls: 'hook',
+    html: 'САЙТЫҢ<br><span class="acc">ОСЫНДАЙ</span><br>БОЛСЫН БА?' },
+  { id: 'b1', t: 3,  eyebrow: '01 · 3D САЙТ', cls: 'head',
+    html: 'Бір басу —<br>реакторға<br>ұшатын <span class="acc">сапар</span>' },
+  { id: 'b2', t: 6,  eyebrow: '02 · НАҚТЫ ФИЗИКА', cls: 'head',
+    html: '3D токамак,<br>нақты теңдеулер,<br><span class="acc">тірі плазма</span>' },
+  { id: 'b3', t: 9,  eyebrow: '03 · ПЛАТФОРМА', cls: 'head',
+    html: 'Тек әдемі емес —<br><span class="acc">жұмыс істейтін</span><br>реактор' },
+  { id: 'b4', t: 12, eyebrow: '04 · ТОЛЫҚ ФУНКЦИЯ', cls: 'head',
+    html: '19 диагностика,<br>МГД, дизрупция,<br><span class="acc">қазақ тілінде</span>' }
+];
+/* the physics the site actually solves -- not decoration */
+const FORMULAS = [
+  { f: 'Q = P<sub>син</sub> / P<sub>қыз</sub>', l: 'КҮШЕЮ КОЭФФИЦИЕНТІ', x: 640, y: 96,  t0: 3.7, t1: 6.2 },
+  { f: 'β<sub>N</sub> ≤ 4 l<sub>i</sub>',        l: 'ТРОЙОН ШЕГІ',        x: 110, y: 170, t0: 6.3, t1: 8.95 },
+  { f: 'Δ*ψ = −μ<sub>0</sub>R j<sub>φ</sub>',    l: 'ГРАД–ШАФРАНОВ',      x: 560, y: 300, t0: 6.6, t1: 8.95 },
+  { f: 'τ<sub>E</sub> = W / P<sub>шығ</sub>',    l: 'ЭНЕРГИЯНЫ ҰСТАУ',    x: 90,  y: 520, t0: 6.9, t1: 8.95 },
+  { f: 'P<sub>α</sub> = ¼ n² ⟨σv⟩ E<sub>α</sub>', l: 'АЛЬФА-ҚЫЗДЫРУ',     x: 520, y: 690, t0: 7.2, t1: 8.95 }
+];
+/* captured site footage, 30 fps. `look` places each clip in the portrait
+   frame: the machine sits above the text block, the way the rocket does in
+   the reference; inside the vessel the plasma ring is lifted to mid-frame
+   and the light-box exposure is pulled back so the ring reads as light. */
+const CLIPS = {
+  landing:  { dir: 'cap/landing',  name: 'landing',  n: 105, look: 'translateY(-120px)', filter: 'none',
+              mask: 'linear-gradient(to bottom,#000 0,#000 78%,transparent 89%)' },
+  flight:   { dir: 'cap/flight',   name: 'flight',   n: 112, look: 'translateY(-120px)', filter: 'none',
+              mask: 'linear-gradient(to bottom,#000 0,#000 78%,transparent 89%)' },
+  /* the ring is lifted to mid-frame; the capture's lower edge dissolves
+     into the dark rather than ending on a hard line under the headline */
+  interior: { dir: 'cap/interior', name: 'interior', n: 105, look: 'translateY(-520px) scale(1.06)',
+              filter: 'contrast(1.22) saturate(1.3) brightness(0.82)',
+              mask: 'linear-gradient(to bottom,#000 0,#000 66%,transparent 86%)' }
+};
+const DUR = 18.3, FPS = 30;
+
+/* ------------------------------------------------------------------ build */
+const $ = id => document.getElementById(id);
+for (const b of BEATS) {
+  $(b.id).innerHTML = `<div class="eyebrow">${b.eyebrow}</div><div class="${b.cls}">${b.html}</div>`;
+}
+$('fxs').innerHTML = FORMULAS.map((f, i) =>
+  `<div class="fx" id="fx${i}" style="left:${f.x}px;top:${f.y}px"><b>${f.f}</b><i>${f.l}</i></div>`).join('');
+$('cards3').innerHTML = ['gauges', 'power', 'heatflux']
+  .map(id => `<div class="card"><img src="cap/hud/panel_${id}.png"></div>`).join('');
+$('rail').src = 'cap/hud/hud-left.png';
+$('cta').innerHTML = `
+  <div class="mark">${BRAND.mark[0]}<span class="acc">${BRAND.mark[1]}</span>${BRAND.mark[2]}</div>
+  <div class="sub">${BRAND.sub}</div>
+  <div class="q">${BRAND.question}</div>
+  <div class="chips">${BRAND.chips.map(c => `<span class="chip">${c}</span>`).join('')}</div>
+  <div class="btn">${BRAND.button}</div>
+  <div class="handle">${BRAND.handle}</div>`;
+
+/* ------------------------------------------------------------------ time */
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = x => 1 - Math.pow(1 - clamp(x), 3);              // easeOutCubic
+const inout = x => { x = clamp(x); return x * x * (3 - 2 * x); };
+/* frames each clip must cover on screen; a clip captured with fewer frames
+   is stretched to fill its window rather than freezing on its last frame */
+const NEED = { landing: 101, flight: 101, interior: 108 };
+const frameSrc = (c, t0, t) => {
+  const C = CLIPS[c], n = (window.CLIP_N && window.CLIP_N[c]) || C.n;
+  const k = Math.min(1, n / NEED[c]);
+  const i = clamp(Math.floor((t - t0) * FPS * k), 0, n - 1);
+  return `${C.dir}/${C.name}_${String(i).padStart(4, '0')}.jpg`;
+};
+
+/* which footage is on screen, and the one it is dissolving into */
+function footage(t) {
+  if (t < 3.0) return [['landing', 0, 1]];
+  if (t < 3.35) { const k = inout((t - 3.0) / 0.35); return [['landing', 0, 1 - k], ['flight', 3.0, k]]; }
+  if (t < 6.0) return [['flight', 3.0, 1]];
+  if (t < 6.35) { const k = inout((t - 6.0) / 0.35); return [['flight', 3.0, 1 - k], ['interior', 6.0, k]]; }
+  if (t < 9.6) return [['interior', 6.0, 1 - inout((t - 9.0) / 0.6)]];
+  return [];
+}
+
+/* a beat fades up and rises into place, holds, then clears for the next */
+/* consecutive beats overlap by LEAD seconds so no frame falls between them */
+const LEAD = 0.12;
+function beatState(t, b) {
+  const lead = b.t > 0 ? LEAD : 0, a = t - (b.t - lead), len = 3.0 + lead;
+  if (a < 0 || a > len) return [0, 26];
+  /* the hook is on screen from the first frame: that frame is the reel's
+     cover and the moment a scrolling thumb decides to stop */
+  const up = b.t === 0 ? 1 : ease(a / 0.5), down = 1 - inout((a - (len - 0.3)) / 0.3);
+  return [Math.min(up, down), 26 * (1 - up)];
+}
+
+const loads = [];
+function setSrc(img, src) {
+  if (img.getAttribute('src') !== src) { img.src = src; loads.push(img.decode().catch(() => {})); }
+}
+
+window.render = async function (t) {
+  loads.length = 0;
+  /* footage */
+  const f = footage(t), A = $('bgA'), B = $('bgB');
+  const put = (img, e) => {
+    if (!e) { img.style.opacity = 0; return; }
+    const C = CLIPS[e[0]];
+    setSrc(img, frameSrc(e[0], e[1], t));
+    img.style.opacity = e[2]; img.style.transform = C.look; img.style.filter = C.filter;
+    img.style.webkitMaskImage = C.mask; img.style.maskImage = C.mask;
+  };
+  put(A, f[0]); put(B, f[1]);
+
+  /* legibility shade over the 3D beats; UI backdrop for the cards beats */
+  $('shade').style.opacity = 1 - inout((t - 8.8) / 0.6);
+  $('uibg').style.opacity = inout((t - 8.8) / 0.6) * (1 - inout((t - 14.9) / 0.4));
+
+  /* text */
+  for (const b of BEATS) {
+    const [o, y] = beatState(t, b), el = $(b.id);
+    el.style.opacity = o; el.style.transform = `translateY(${y}px)`;
+  }
+
+  /* formulas drift and breathe */
+  FORMULAS.forEach((q, i) => {
+    const el = $('fx' + i);
+    const o = inout((t - q.t0) / 0.6) * (1 - inout((t - (q.t1 - 0.4)) / 0.4));
+    el.style.opacity = o * 0.95;
+    el.style.transform = `translate(${Math.sin(t * 0.5 + i) * 10}px, ${-(t - q.t0) * 9}px)`;
+  });
+
+  /* 03: control-room cards rise slowly, like a page scrolling under the thumb */
+  {
+    const a = t - (9.0 - LEAD), o = inout(a / 0.5) * (1 - inout((a - (2.7 + LEAD)) / 0.3));
+    const el = $('cards3'); el.style.opacity = a < 0 || a > 3 + LEAD ? 0 : o;
+    el.style.transform = `translateY(${60 * (1 - ease(a / 0.7)) - a * 22}px)`;
+  }
+  /* 04: the diagnostics rail scrolls past */
+  {
+    const a = t - (12.0 - LEAD), o = inout(a / 0.45) * (1 - inout((a - (2.7 + LEAD)) / 0.3));
+    $('railwin').style.opacity = a < 0 || a > 3.0 + LEAD ? 0 : o;
+    const rail = $('rail'), H = rail.naturalHeight ? rail.naturalHeight * 960 / rail.naturalWidth : 2600;
+    /* about one panel a second, like a thumb scrolling a list */
+    const travel = Math.min(1350, Math.max(0, H - 1180));
+    rail.style.transform = `translateY(${-travel * inout(clamp((a - 0.2) / 2.8))}px)`;
+  }
+
+  /* end card */
+  {
+    const a = t - (15.0 - 0.2), o = inout(a / 0.5);
+    const el = $('cta'); el.style.opacity = a < 0 ? 0 : o;
+    el.style.transform = `scale(${0.985 + 0.015 * ease(a / 0.8)})`;
+  }
+
+  await Promise.all(loads);
+  await document.fonts.ready;
+};
+window.DUR = DUR; window.FPS = FPS;
+</script>
+</body>
+</html>
