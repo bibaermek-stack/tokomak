@@ -219,7 +219,7 @@
 
   /* ======================================================================= */
   class Tokamak {
-    constructor(machine) {
+    constructor(machine, shotNo) {
       const src = MACHINES[machine] || MACHINES.iter;
       const M = {};
       for (const k in src) M[k] = src[k];
@@ -228,6 +228,9 @@
       /* the renderer and the HUD still speak of a single elongation */
       M.kappa = M.kappaX; M.delta = M.deltaX;
       this.M = M;
+      /* Kept across reset() so a pinned shot stays pinned when the
+         discharge restarts -- the harness resets between machines. */
+      this.pinnedShot = (shotNo != null) ? (shotNo | 0) : null;
       this.reset();
     }
 
@@ -267,7 +270,14 @@
       this.disruptT  = -1; this.disrupted = false;
       this.ignition  = 0;      // smoothed 0..1 "burning plasma" indicator
       this.alarms    = [];
-      this.shotNo    = 84217 + ((Math.random() * 40) | 0);
+      /* Every shot gets its own ELM and Mirnov jitter, which is what makes
+         two discharges differ the way real ones do. The validation harness
+         has to be able to switch that off: a number that moves between runs
+         cannot be a validation result, and this jitter shifts the mean
+         deviation across the ITER table by about 0.1 points. Pass a shot
+         number to pin it. */
+      this.shotNo    = (this.pinnedShot != null) ? this.pinnedShot
+                                                 : 84217 + ((Math.random() * 40) | 0);
       this.rotPhase  = 0;      // toroidal rotation phase for the renderer
       this.mhdPhase  = 0;
       this.rngf      = rnd(this.shotNo * 7919 + 13);

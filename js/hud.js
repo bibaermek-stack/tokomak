@@ -85,9 +85,13 @@
       this.profHead = 0;
     }
     push(P, dt) {
+      /* A caller that hands over a bad delta must not be able to silence
+         the charts: the accumulator only ever moves forward, and it keeps
+         the remainder so sampling stays on cadence instead of drifting. */
+      if (!(dt > 0)) return false;
       this.acc += dt;
       if (this.acc < HIST_DT) return false;
-      this.acc = 0;
+      this.acc = Math.min(this.acc - HIST_DT, HIST_DT);
       const i = this.head;
       const c = this.ch;
       c.Te[i] = P.Te;         c.Ti[i] = P.Ti;        c.ne[i] = P.ne;
