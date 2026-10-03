@@ -11,6 +11,8 @@ Endpoints
     POST /disruption               post-disruption chain
     POST /plant                    fuel cycle and plant power balance
     GET  /validate                 component validation report
+    GET  /control/contract         closed-loop I/O contract and device
+    POST /control/run              one closed-loop episode (PID / policy / open loop)
     GET  /health
 
 Model selection is the organising idea: ``/models`` lists what can be
@@ -419,3 +421,99 @@ def plant(req: PlantRequest) -> dict:
 @app.get("/validate")
 def validate() -> dict:
     return jsonable(val.report())
+
+
+# --- closed-loop control -----------------------------------------------------
+# Building a device and designing the baseline's gains takes a few seconds,
+# so one environment per machine is kept and requests on it are serialised:
+# the environment is stateful and a request runs a whole episode on it.
+import os
+import threading
+
+_CONTROL: dict = {}
+_CONTROL_LOCK = threading.Lock()
+_POLICY_PATH = os.environ.get(
+    "TOKAMAK_POLICY",
+    os.path.join(os.path.dirname(__file__), "..", "tokamak", "control",
+                 "policy.npz"))
+
+
+def _control_env(machine: str):
+    from tokamak.control.env import EnvConfig, TokamakControlEnv
+    from tokamak.control.simulator import DeviceConfig
+    key = machine.lower()
+    if key not in _CONTROL:
+        try:
+            env = TokamakControlEnv(EnvConfig(device=DeviceConfig(machine=key)))
+        except (KeyError, ValueError) as e:
+            raise HTTPException(400, str(e))
+        _CONTROL[key] = {"env": env, "pid": None}
+    return _CONTROL[key]
+
+
+class ControlRunRequest(BaseModel):
+    machine: str = "ktm"
+    controller: str = Field("pid", description="pid | policy | open_loop")
+    steps: int = Field(500, ge=1, le=3000)
+    seed: int = 0
+    delay_ms: Optional[int] = Field(None, ge=0, le=5)
+    disturb: bool = True
+    every: int = Field(5, ge=1, le=100, description="trace decimation")
+
+
+@app.get("/control/contract")
+def control_contract(machine: str = "ktm") -> dict:
+    from tokamak.control.loop import contract_spec
+    with _CONTROL_LOCK:
+        c = _control_env(machine)
+        env = c["env"]
+        s = env.sim
+        return jsonable({
+            "contract": contract_spec(env),
+            "device": {
+                "machine": s.machine.label,
+                "coils": s.coil_names,
+                "I_max_A": s.I_max, "V_max_V": s.V_max,
+                "Ip_A": s.Ip0, "R_c": s.ref_R, "Z_c": s.ref_Z,
+                "vertical_growth_rate_s": s.vertical_growth_rate(),
+                "plasma_filaments": len(s.plasma.w),
+                "vessel_segments": len(s.cond.names) - s.n_act,
+                "equilibrium": s.plasma.gs_summary,
+            },
+            "termination": env.cfg.termination.__dict__,
+            "policy_available": os.path.exists(_POLICY_PATH),
+        })
+
+
+@app.post("/control/run")
+def control_run(req: ControlRunRequest) -> dict:
+    from tokamak.control.baseline import PIDController
+    from tokamak.control.loop import (CoSimulation, NeuralController,
+                                      ZeroController)
+    from tokamak.control.policy import ActorCritic
+    with _CONTROL_LOCK:
+        c = _control_env(req.machine)
+        env = c["env"]
+        if req.controller == "pid":
+            if c["pid"] is None:
+                c["pid"] = PIDController(env)
+            ctrl = c["pid"]
+        elif req.controller == "policy":
+            if not os.path.exists(_POLICY_PATH):
+                raise HTTPException(404, "no trained policy; run "
+                                         "python -m tokamak.control.train")
+            ac = ActorCritic.load(_POLICY_PATH)
+            if ac.obs_dim != env.obs_dim or ac.act_dim != env.act_dim:
+                raise HTTPException(400, "the trained policy was made for a "
+                                         "different device")
+            ctrl = NeuralController(ac)
+        elif req.controller == "open_loop":
+            ctrl = ZeroController(env.act_dim)
+        else:
+            raise HTTPException(400, f"unknown controller {req.controller!r}")
+        tr = CoSimulation(env).run(ctrl, steps=req.steps, seed=req.seed,
+                                   delay=req.delay_ms, disturb=req.disturb)
+        return jsonable({"controller": req.controller,
+                         "machine": env.sim.machine.label,
+                         "delay_ms": env.sensors.delay,
+                         "trace": tr.to_dict(every=req.every)})
