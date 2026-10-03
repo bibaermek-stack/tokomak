@@ -195,6 +195,10 @@
   }
 
   function exitToLanding() {
+    if (advisor) advisor.setFocus(false);
+    const box = $('fault');
+    if (box) box.hidden = true;
+    faulted = false;
     setStage('landing');
     renderer.toLanding();
   }
@@ -265,6 +269,58 @@
   sl.gas.addEventListener('input', () => { manual(); phys.gasSet  = +sl.gas.value; });
   sl.ip .addEventListener('input', () => { manual(); phys.IpSet   = +sl.ip.value; });
   sl.bt .addEventListener('input', () => { phys.Bt = +sl.bt.value; });
+
+  let advisor = null;
+  if (window.Advisor) {
+    advisor = new Advisor({
+      phys, sliders: sl, manual, syncLabels,
+      onLaunch: function () {}
+    });
+  }
+
+  let faulted = false;
+  let overheatAcc = 0;
+  let disruptAcc = 0;
+  function tripFault(cause) {
+    if (faulted || sim.stage !== 'sim') return;
+    faulted = true;
+    sim.paused = true;
+    phys.autoPilot = false;
+    phys.PnbiSet = 0; phys.PicrSet = 0; phys.PecrSet = 0; phys.gasSet = 0;
+    if (advisor) { advisor.setFocus(false); advisor.hideRail(); }
+    const box = $('fault');
+    const causeEl = $('fault-cause');
+    const logEl = $('fault-log');
+    if (causeEl) causeEl.textContent = cause;
+    if (logEl) {
+      logEl.innerHTML = '';
+      const rows = (phys.alarms || []).slice(0, 8);
+      if (!rows.length) {
+        const li = document.createElement('li');
+        li.textContent = cause;
+        logEl.appendChild(li);
+      }
+      rows.forEach(function (a) {
+        const li = document.createElement('li');
+        li.textContent = 't=' + Number(a.t).toFixed(1) + ' с  ·  ' + a.text;
+        logEl.appendChild(li);
+      });
+    }
+    if (box) box.hidden = false;
+  }
+  function clearFault() {
+    faulted = false;
+    overheatAcc = 0;
+    disruptAcc = 0;
+    phys.reset();
+    phys.autoPilot = true;
+    $('b-auto').classList.add('on');
+    setPaused(false);
+    if (advisor) advisor._cool = {};
+    const box = $('fault');
+    if (box) box.hidden = true;
+  }
+  $('fault-restart').addEventListener('click', clearFault);
 
   function syncSliders() {
     if (!phys.autoPilot) return;
@@ -342,12 +398,16 @@
 
   /* ------------------------------------------------------- keyboard ----- */
   window.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT') return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     const k = e.key.toLowerCase();
     if (k === 'enter' && (sim.stage === 'landing' || sim.stage === 'anatomy')) {
       startFlight(); return;
     }
     if (k === 'escape') {
+      if (document.body.classList.contains('ai-focus')) {
+        if (advisor) advisor.setFocus(false);
+        return;
+      }
       if (sim.stage === 'sim') exitToLanding();
       else if (sim.stage === 'anatomy') leaveAnatomy();
       return;
@@ -356,6 +416,9 @@
     if (sim.stage !== 'sim') return;
     switch (k) {
       case 'h': hud.toggle(); break;
+      case 'i':
+        if (advisor) advisor.setFocus(!advisor.focused);
+        break;
       case 'c': $('controls').classList.toggle('hidden'); break;
       case 'p': setPaused(!sim.paused); break;
       case 'f':
@@ -448,6 +511,23 @@
     labelAcc += dt;
     if (labelAcc > 0.1 && sim.stage === 'sim') {
       labelAcc = 0; syncSliders(); syncLabels();
+      if (!faulted && advisor) advisor.watch(phys, sim.stage);
+      if (!faulted) {
+        const pending = advisor && advisor.pending && advisor.pending.length;
+        if (phys.qDivSteady > 16) overheatAcc += 0.1;
+        else overheatAcc = Math.max(0, overheatAcc - 0.12);
+        if (phys.disrupted) disruptAcc += 0.1;
+        else disruptAcc = 0;
+        /* give the right-side advisor time to ask; only trip if ignored */
+        if (overheatAcc > 22 && (!pending || overheatAcc > 45)) {
+          phys.pushAlarm('ДИВЕРТОР ҚЫЗУЫ — АВАРИЯЛЫҚ ТОҚТАТУ', 'crit');
+          tripFault('Токамак қатты қызды (q_div = ' + phys.qDiv.toFixed(1) +
+            ' МВт/м²). Жұмысты жалғастыру қауіпті.');
+        } else if (disruptAcc > 14 && phys.Ip < 0.4 && (!pending || disruptAcc > 28)) {
+          const last = (phys.alarms[0] && phys.alarms[0].text) || 'ДИЗРУПЦИЯ';
+          tripFault('Плазма жұмысын тоқтатты. ' + last);
+        }
+      }
     }
 
     /* the real frame delta, not the JS render time — GPU work is async */
@@ -475,7 +555,7 @@
     requestAnimationFrame(frame);
   });
 
-  window.SIM = { phys, renderer, hud, sim, view, PARTS,
+  window.SIM = { phys, renderer, hud, sim, view, PARTS, advisor,
                  startFlight, exitToLanding, showAnatomy, leaveAnatomy,
                  setHighlight, updateMarkers };
 })();

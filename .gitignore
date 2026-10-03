@@ -1,8 +1,12 @@
 _capture/
+.claude/
 __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
-__pycache__/
-*.pyc
 .pytest_cache/
+.env
+.env.*
+!.env.example
+ai_files/*
+!ai_files/.gitkeep

@@ -1,0 +1,516 @@
+{
+  "source": "IMAS Data Dictionary (ITER Organization, CC-BY-SA 4.0)",
+  "entries": [
+    {
+      "ids": "summary",
+      "path": "summary.fusion.power",
+      "units": "W",
+      "documentation": "Total fusion power.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.fusion.neutron_power_total",
+      "units": "W",
+      "documentation": "Neutron power from fusion.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.ip",
+      "units": "A",
+      "documentation": "Plasma current.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.b0",
+      "units": "T",
+      "documentation": "Vacuum toroidal field at R0.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.q_95",
+      "units": "1",
+      "documentation": "Safety factor at 95% flux.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.beta_normal",
+      "units": "1",
+      "documentation": "Normalised beta.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.beta_tor",
+      "units": "1",
+      "documentation": "Toroidal beta.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.tau_energy",
+      "units": "s",
+      "documentation": "Energy confinement time.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.h_98",
+      "units": "1",
+      "documentation": "H98(y,2) confinement factor.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.zeff",
+      "units": "1",
+      "documentation": "Effective charge.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.t_e_volume_average",
+      "units": "eV",
+      "documentation": "Volume-average electron temperature.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.t_i_volume_average",
+      "units": "eV",
+      "documentation": "Volume-average ion temperature.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.n_e_volume_average",
+      "units": "m^-3",
+      "documentation": "Volume-average electron density.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.n_e_greenwald",
+      "units": "m^-3",
+      "documentation": "Greenwald density limit.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.greenwald_fraction",
+      "units": "1",
+      "documentation": "Line-average density over Greenwald.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.energy_thermal",
+      "units": "J",
+      "documentation": "Thermal stored energy.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.v_loop",
+      "units": "V",
+      "documentation": "Loop voltage.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.li_3",
+      "units": "1",
+      "documentation": "Internal inductance.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.q_plus",
+      "units": "1",
+      "documentation": "Fusion gain Q = P_fus / P_aux.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.h_mode",
+      "units": "1",
+      "documentation": "H-mode flag.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "summary",
+      "path": "summary.global_quantities.power_radiated",
+      "units": "W",
+      "documentation": "Total radiated power.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "core_profiles",
+      "path": "core_profiles.profiles_1d.electrons.temperature",
+      "units": "eV",
+      "documentation": "Electron temperature profile.",
+      "data_type": "FLT_1D"
+    },
+    {
+      "ids": "core_profiles",
+      "path": "core_profiles.profiles_1d.electrons.density",
+      "units": "m^-3",
+      "documentation": "Electron density profile.",
+      "data_type": "FLT_1D"
+    },
+    {
+      "ids": "core_profiles",
+      "path": "core_profiles.profiles_1d.ion.temperature",
+      "units": "eV",
+      "documentation": "Ion temperature profile.",
+      "data_type": "FLT_1D"
+    },
+    {
+      "ids": "core_profiles",
+      "path": "core_profiles.profiles_1d.q",
+      "units": "1",
+      "documentation": "Safety factor profile.",
+      "data_type": "FLT_1D"
+    },
+    {
+      "ids": "core_profiles",
+      "path": "core_profiles.profiles_1d.pressure_thermal",
+      "units": "Pa",
+      "documentation": "Thermal pressure profile.",
+      "data_type": "FLT_1D"
+    },
+    {
+      "ids": "core_profiles",
+      "path": "core_profiles.profiles_1d.zeff",
+      "units": "1",
+      "documentation": "Zeff profile.",
+      "data_type": "FLT_1D"
+    },
+    {
+      "ids": "core_profiles",
+      "path": "core_profiles.vacuum_toroidal_field.b0",
+      "units": "T",
+      "documentation": "Reference toroidal field.",
+      "data_type": "FLT_1D"
+    },
+    {
+      "ids": "equilibrium",
+      "path": "equilibrium.time_slice.global_quantities.ip",
+      "units": "A",
+      "documentation": "Equilibrium plasma current.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "equilibrium",
+      "path": "equilibrium.time_slice.global_quantities.q_95",
+      "units": "1",
+      "documentation": "q95 from Grad-Shafranov.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "equilibrium",
+      "path": "equilibrium.time_slice.global_quantities.q_axis",
+      "units": "1",
+      "documentation": "On-axis safety factor.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "equilibrium",
+      "path": "equilibrium.time_slice.global_quantities.beta_normal",
+      "units": "1",
+      "documentation": "Normalised beta from equilibrium.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "equilibrium",
+      "path": "equilibrium.time_slice.global_quantities.magnetic_axis.r",
+      "units": "m",
+      "documentation": "Magnetic axis major radius.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "equilibrium",
+      "path": "equilibrium.time_slice.profiles_1d.q",
+      "units": "1",
+      "documentation": "q(psi) profile.",
+      "data_type": "FLT_1D"
+    },
+    {
+      "ids": "equilibrium",
+      "path": "equilibrium.time_slice.boundary.geometric_axis.r",
+      "units": "m",
+      "documentation": "Geometric axis R.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "nbi",
+      "path": "nbi.unit.power_launched",
+      "units": "W",
+      "documentation": "Launched neutral-beam power.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "nbi",
+      "path": "nbi.unit.energy",
+      "units": "eV",
+      "documentation": "Beam particle energy.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "nbi",
+      "path": "nbi.unit.species.a",
+      "units": "u",
+      "documentation": "Beam ion mass number.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "nbi",
+      "path": "nbi.power_launched",
+      "units": "W",
+      "documentation": "Total NBI launched power.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "ic_antennas",
+      "path": "ic_antennas.antenna.power_launched",
+      "units": "W",
+      "documentation": "ICRF launched power per antenna.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "ic_antennas",
+      "path": "ic_antennas.power_launched",
+      "units": "W",
+      "documentation": "Total ICRH launched power.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "ic_antennas",
+      "path": "ic_antennas.antenna.frequency",
+      "units": "Hz",
+      "documentation": "ICRF frequency.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "ec_launchers",
+      "path": "ec_launchers.beam.power_launched",
+      "units": "W",
+      "documentation": "ECRH launched power per beam.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "ec_launchers",
+      "path": "ec_launchers.power_launched",
+      "units": "W",
+      "documentation": "Total ECRH launched power.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "ec_launchers",
+      "path": "ec_launchers.beam.frequency",
+      "units": "Hz",
+      "documentation": "ECRH frequency.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "pulse_schedule",
+      "path": "pulse_schedule.time",
+      "units": "s",
+      "documentation": "Pulse time base.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "pulse_schedule",
+      "path": "pulse_schedule.density_control.n_e_line",
+      "units": "m^-2",
+      "documentation": "Requested line-average density.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "pulse_schedule",
+      "path": "pulse_schedule.density_control.gas_puff",
+      "units": "Pa.m^3.s^-1",
+      "documentation": "Gas puff / valve command.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "pulse_schedule",
+      "path": "pulse_schedule.flux_control.i_plasma",
+      "units": "A",
+      "documentation": "Requested plasma current.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "pulse_schedule",
+      "path": "pulse_schedule.tf.b_field_tor_vacuum_r",
+      "units": "T.m",
+      "documentation": "Requested vacuum toroidal field*R.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "gas_injection",
+      "path": "gas_injection.valve.flow_rate",
+      "units": "Pa.m^3.s^-1",
+      "documentation": "Gas valve flow rate.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "pellets",
+      "path": "pellets.time_slice.pellet.velocity",
+      "units": "m.s^-1",
+      "documentation": "Pellet injection velocity.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "pellets",
+      "path": "pellets.time_slice.pellet.species.fraction",
+      "units": "1",
+      "documentation": "Pellet composition fraction.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "divertors",
+      "path": "divertors.tungsten.target_heat_flux",
+      "units": "W.m^-2",
+      "documentation": "Divertor target heat flux.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "divertors",
+      "path": "divertors.tungsten.t_e_target",
+      "units": "eV",
+      "documentation": "Divertor target electron temperature.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "edge_profiles",
+      "path": "edge_profiles.profiles_1d.t_e",
+      "units": "eV",
+      "documentation": "SOL / edge electron temperature.",
+      "data_type": "FLT_1D"
+    },
+    {
+      "ids": "radiation",
+      "path": "radiation.global_quantities.power_total",
+      "units": "W",
+      "documentation": "Total radiated power.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "radiation",
+      "path": "radiation.global_quantities.power_prad_h",
+      "units": "W",
+      "documentation": "Hydrogen line radiation.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "magnetics",
+      "path": "magnetics.b_field_pol_probe.field",
+      "units": "T",
+      "documentation": "Mirnov / poloidal probe field.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "magnetics",
+      "path": "magnetics.flux_loop.flux",
+      "units": "Wb",
+      "documentation": "Poloidal flux loop.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "tf",
+      "path": "tf.b_field_tor_vacuum_r",
+      "units": "T.m",
+      "documentation": "Vacuum toroidal field times R.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "pf_active",
+      "path": "pf_active.coil.current",
+      "units": "A",
+      "documentation": "Poloidal-field coil current.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "barometry",
+      "path": "barometry.gauge.pressure",
+      "units": "Pa",
+      "documentation": "Vessel pressure.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "neutron_diagnostic",
+      "path": "neutron_diagnostic.field_of_view.detector.counts",
+      "units": "1",
+      "documentation": "Neutron detector counts.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "wall",
+      "path": "wall.global_quantities.temperature",
+      "units": "K",
+      "documentation": "First-wall temperature.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "disruption",
+      "path": "disruption.global_quantities.ip",
+      "units": "A",
+      "documentation": "Plasma current during disruption.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "disruption",
+      "path": "disruption.global_quantities.runaway_current",
+      "units": "A",
+      "documentation": "Runaway electron current.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "mhd",
+      "path": "mhd.time_slice.n_tor",
+      "units": "1",
+      "documentation": "Toroidal mode number.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "core_sources",
+      "path": "core_sources.source.nbi.power",
+      "units": "W",
+      "documentation": "NBI power deposited in the core.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "core_sources",
+      "path": "core_sources.source.ec.power",
+      "units": "W",
+      "documentation": "ECRH power deposited in the core.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "core_sources",
+      "path": "core_sources.source.ic.power",
+      "units": "W",
+      "documentation": "ICRH power deposited in the core.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "core_sources",
+      "path": "core_sources.source.ohmic.power",
+      "units": "W",
+      "documentation": "Ohmic heating power.",
+      "data_type": "FLT_0D"
+    },
+    {
+      "ids": "core_sources",
+      "path": "core_sources.source.fusion.power",
+      "units": "W",
+      "documentation": "Alpha heating power to the plasma.",
+      "data_type": "FLT_0D"
+    }
+  ]
+}

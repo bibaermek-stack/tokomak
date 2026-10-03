@@ -311,6 +311,7 @@
         </div>
         <div class="hint">СҮЙРЕҢІЗ — айналдыру · ДӨҢГЕЛЕК — масштаб ·
           <kbd>H</kbd> панель · <kbd>P</kbd> тоқтату ·
+          <kbd>I</kbd> AI chat ·
           <kbd>F</kbd> толық экран · <kbd>C</kbd> басқару</div>
       </div>
     </div>
@@ -318,6 +319,50 @@
 
   <aside id="hud-right" class="rail"></aside>
   <footer id="hud-bottom"></footer>
+</div>
+
+<div id="ai-rail">
+  <div class="ai-rail-head">КЕҢЕС</div>
+  <p id="ai-rail-msg"></p>
+  <pre id="ai-rail-act"></pre>
+  <div class="ai-rail-btns">
+    <button type="button" id="ai-rail-yes">РАСТАУ</button>
+    <button type="button" id="ai-rail-no">ЖОҚ</button>
+  </div>
+</div>
+
+<div id="ai-dock" aria-label="AI chat">
+  <div id="ai-tabs">
+    <button type="button" id="ai-tab">AI chat</button>
+    <button type="button" id="ai-launch">Launch</button>
+  </div>
+  <aside id="ai-panel">
+    <header id="ai-head">
+      <span class="ai-title">AI chat</span>
+      <span id="ai-avail">КҮТУ</span>
+    </header>
+    <div id="ai-split">
+      <section id="ai-talk">
+        <div class="ai-col-head">СӨЙЛЕСУ</div>
+        <div id="ai-log"></div>
+        <div id="ai-attach-list"></div>
+        <form id="ai-form">
+          <label id="ai-attach-btn" title="файл / сурет">+
+            <input type="file" id="ai-attach" multiple hidden
+                   accept="image/*,.txt,.md,.csv,.json,.html,.png,.jpg,.jpeg,.webp,.gif">
+          </label>
+          <input id="ai-input" maxlength="4000" autocomplete="off"
+                 placeholder="жаз немесе сурет/файл қосыңыз">
+          <button type="submit" id="ai-send">ЖІБЕРУ</button>
+        </form>
+      </section>
+      <section id="ai-confirm-pane">
+        <div class="ai-col-head">РАСТАУ</div>
+        <div id="ai-confirm-log"></div>
+        <div id="ai-card" hidden></div>
+      </section>
+    </div>
+  </aside>
 </div>
 
 <!-- ============================================================== boot -->
@@ -331,11 +376,21 @@
 </div>
 
 <div id="fatal" hidden></div>
+<div id="fault" hidden>
+  <div class="fault-inner">
+    <div class="fault-tag">АВАРИЯЛЫҚ РЕЖИМ</div>
+    <h2>АҚАУ</h2>
+    <p id="fault-cause"></p>
+    <ul id="fault-log"></ul>
+    <button type="button" id="fault-restart">ҚАЙТА ҚОСУ</button>
+  </div>
+</div>
 
 <script src="js/physics.js"></script>
 <script src="js/shaders.js"></script>
 <script src="js/render.js"></script>
 <script src="js/hud.js"></script>
+<script src="js/ai.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

@@ -771,16 +771,13 @@
         if (cause) this.triggerDisruption(cause);
       }
       if (this.disrupted) {
-        /* thermal quench then current quench */
+        /* thermal quench then current quench — stay down until operator reset */
         const dtq = this.t - this.disruptT;
         if (dtq < 0.003) { this.Te *= 0.2; this.Ti *= 0.2; }
         this.Ip = Math.max(0, this.Ip - dt * 45 * M.IpNom / 15);
         this.Te = Math.max(0.02, this.Te - dt * 8);
         this.Ti = Math.max(0.02, this.Ti - dt * 8);
-        if (this.Ip < 0.05 && dtq > 2.5) {
-          this.disrupted = false; this.hMode = false;
-          this.reset(); this.autoPilot = true;
-        }
+        this.PnbiSet = 0; this.PicrSet = 0; this.PecrSet = 0; this.gasSet = 0;
       }
 
       /* --- rotation phase used by the renderer ---------------------------- */

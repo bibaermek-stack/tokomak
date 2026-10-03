@@ -14,6 +14,11 @@ Endpoints
     GET  /control/contract         closed-loop I/O contract and device
     POST /control/run              one closed-loop episode (PID / policy / open loop)
     GET  /health
+    GET  /ai/health                advisor availability (no model name)
+    GET  /ai/imas                  IMAS catalog search
+    POST /ai/chat                  advisor: advice + confirm-only proposals
+    GET  /ai/files                 sandboxed advisor files
+    GET  /ai/files/{name}          download one advisor file
 
 Model selection is the organising idea: ``/models`` lists what can be
 chosen, every request names the models it wants, and every response echoes
@@ -22,11 +27,14 @@ them back, so a result always carries the assumptions that produced it.
 
 from __future__ import annotations
 
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from tokamak import disruption as disr
@@ -199,10 +207,79 @@ class CompareRequest(BaseModel):
     density_fraction: float = 0.5
 
 
+class ChatRequest(BaseModel):
+    message: str = ""
+    mode: str = "live"
+    snapshot: Optional[Dict[str, Any]] = None
+    history: Optional[List[Dict[str, Any]]] = None
+    attachments: Optional[List[str]] = None
+
+
 # ---------------------------------------------------------------------------
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/ai/health")
+def ai_health() -> dict:
+    from ai.operator import health as advisor_health
+    return advisor_health()
+
+
+@app.get("/ai/imas")
+def ai_imas(q: str = "", limit: int = 12) -> dict:
+    from imas.catalog import search as imas_search
+    hits = imas_search(q, limit=limit)
+    return {"query": q, "hits": hits, "count": len(hits)}
+
+
+@app.post("/ai/chat")
+def ai_chat(req: ChatRequest) -> dict:
+    from ai.operator import chat as advisor_chat, health as advisor_health
+    msg = (req.message or "").strip()
+    atts = [a for a in (req.attachments or []) if isinstance(a, str)]
+    if not msg and not atts:
+        raise HTTPException(400, "empty message")
+    if len(msg) > 4000:
+        raise HTTPException(400, "message too long")
+    if not msg:
+        msg = "осы файлды қара"
+    if not advisor_health()["ai_available"]:
+        return JSONResponse(status_code=503, content={
+            "reply": "Кеңесші әлі қосылмаған.",
+            "proposals": [],
+            "citations": [],
+            "mode": "live",
+            "ai_available": False,
+            "simulate": None,
+        })
+    return jsonable(advisor_chat(msg, "live", req.snapshot, req.history, atts))
+
+
+@app.post("/ai/upload")
+async def ai_upload(file: UploadFile = File(...)) -> dict:
+    from ai.files import save_upload
+    data = await file.read()
+    out = save_upload(file.filename or "upload.bin", data)
+    if not out.get("ok"):
+        raise HTTPException(400, out.get("error") or "upload failed")
+    return out
+
+
+@app.get("/ai/files")
+def ai_files() -> dict:
+    from ai.files import list_files
+    return {"files": list_files()}
+
+
+@app.get("/ai/files/{name}")
+def ai_file(name: str):
+    from ai.files import resolve
+    path = resolve(name)
+    if path is None or not path.is_file():
+        raise HTTPException(404, "file not found")
+    return FileResponse(path, filename=path.name)
 
 
 @app.get("/machines")
@@ -517,3 +594,9 @@ def control_run(req: ControlRunRequest) -> dict:
                          "machine": env.sim.machine.label,
                          "delay_ms": env.sensors.delay,
                          "trace": tr.to_dict(every=req.every)})
+
+
+# The site is mounted last: a mount at "/" would shadow any route added after it.
+_REPO = Path(__file__).resolve().parents[2]
+if (_REPO / "index.html").is_file():
+    app.mount("/", StaticFiles(directory=str(_REPO), html=True), name="site")
