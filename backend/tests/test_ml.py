@@ -1,0 +1,41 @@
+"""Tests for ML endpoints and predictors."""
+
+from fastapi.testclient import TestClient
+
+from api.main import app
+
+client = TestClient(app)
+
+
+def test_ml_status():
+    resp = client.get("/ml/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "synthetic_model_available" in data
+    assert "jtext_real_model_available" in data
+    assert "caveats" in data
+
+
+def test_disruption_risk_prediction():
+    payload = {
+        "B": 3.0,
+        "Ip": 8.0,
+        "P_heat": 20.0,
+        "ne19": 15.0,
+        "Ti_kev": 8.0,
+        "h_mode": True,
+    }
+    resp = client.post("/ml/disruption-risk", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert 0.0 <= data["probability"] <= 1.0
+    assert "caveat" in data
+    assert data["inputs"]["B"] == 3.0
+
+
+def test_disruption_risk_invalid_inputs():
+    # Negative B
+    resp = client.post("/ml/disruption-risk", json={
+        "B": -1.0, "Ip": 8.0, "P_heat": 20.0, "ne19": 15.0, "Ti_kev": 8.0
+    })
+    assert resp.status_code == 422

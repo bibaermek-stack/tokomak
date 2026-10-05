@@ -10,3 +10,6 @@ Thumbs.db
 !.env.example
 ai_files/*
 !ai_files/.gitkeep
+.venv/
+backend/data/
+backend/ml/models/
