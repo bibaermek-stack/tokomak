@@ -51,6 +51,7 @@ to the machine, not an as-built engineering geometry.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -311,7 +312,9 @@ class TokamakSimulator:
             for j in np.flatnonzero(fil):
                 M_ee[k, k] += c.turns[j] ** 2 * self_inductance(c.R[j], sizes[k])
         self.M_ee = M_ee
-        self.R_el = np.concatenate([c.resistance, [p.resistance]])
+        self.R_nom = np.concatenate([c.resistance, [p.resistance]])
+        self.R_el = self.R_nom.copy()           # what the plant actually has
+        self.plant = {"wall_res": 1.0, "plasma_res": 1.0}
 
         # --- diagnostics -------------------------------------------------
         wR, wZ = self.wall
@@ -505,12 +508,39 @@ class TokamakSimulator:
             if np.max(np.abs(dx)) < 1e-9:
                 break
 
+    def set_plant(self, wall_res: float = 1.0, plasma_res: float = 1.0) -> None:
+        """Change the plant's resistances relative to the nominal model.
+
+        ``wall_res`` scales every vacuum-vessel segment (steel resistivity,
+        temperature, bolted joints), ``plasma_res`` the plasma (Spitzer
+        resistance, Z_eff, electron temperature).  Feedforward voltages,
+        the safety filter's prediction and the baseline's design keep using
+        the nominal values (:attr:`R_nom`): a controller does not know the
+        plant it is actually connected to.
+        """
+        self.R_el = self.R_nom.copy()
+        self.R_el[self.n_act:self.n_el] *= wall_res
+        self.R_el[-1] *= plasma_res
+        self.plant = {"wall_res": float(wall_res),
+                      "plasma_res": float(plasma_res)}
+        self._J = None
+
+    @contextlib.contextmanager
+    def nominal_plant(self):
+        """Temporarily put the nominal plant back (for designing against)."""
+        saved = dict(self.plant)
+        self.set_plant(1.0, 1.0)
+        try:
+            yield self
+        finally:
+            self.set_plant(**saved)
+
     def feedforward_at(self, I_coils: np.ndarray) -> np.ndarray:
         """Feedforward for given coil currents at the reference plasma."""
         na = self.n_act
-        V = self.R_el[:na] * I_coils
+        V = self.R_nom[:na] * I_coils
         m_pe, _, _ = self._plasma_couplings(self.plasma.R0, self.plasma.Z0)
-        dIcs = -self.R_el[-1] * self.Ip0 / m_pe[0]
+        dIcs = -self.R_nom[-1] * self.Ip0 / m_pe[0]
         return V + self.M_ee[:na, 0] * dIcs
 
     def feedforward(self) -> np.ndarray:
@@ -522,9 +552,9 @@ class TokamakSimulator:
         in the other coils.
         """
         na = self.n_act
-        V = self.R_el[:na] * self.I[:na]
+        V = self.R_nom[:na] * self.I[:na]
         m_pe = self._M_now()[:self.n_el, self.n_el]
-        dIcs = -self.R_el[-1] * self.I[-1] / m_pe[0]
+        dIcs = -self.R_nom[-1] * self.I[-1] / m_pe[0]
         # the other coils see the CS ramp through their mutuals; cancel it
         # so that only the CS current moves
         V += self.M_ee[:na, 0] * dIcs

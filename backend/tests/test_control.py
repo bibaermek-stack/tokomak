@@ -343,3 +343,92 @@ def test_reward_terms_and_termination_penalty(env):
         if term:
             break
     assert term and r < -env.cfg.reward.terminal_penalty + 1.0
+
+
+# --- plant randomisation, asymmetric critic, filter ablation ------------------
+def test_plant_change_is_invisible_to_the_controller_model(sim):
+    sim.reset()
+    ff0 = sim.feedforward()
+    R0 = sim.R_el.copy()
+    sim.set_plant(wall_res=2.0, plasma_res=0.5)
+    try:
+        # the plant changed ...
+        assert sim.R_el[sim.n_act] == pytest.approx(2.0 * R0[sim.n_act])
+        assert sim.R_el[-1] == pytest.approx(0.5 * R0[-1])
+        # ... the model the feedforward and the baseline use did not
+        assert np.array_equal(sim.feedforward(), ff0)
+        assert np.array_equal(sim.R_nom, R0)
+        # a slower wall means a faster instability
+        assert sim.vertical_growth_rate() > 1.3 * sim.__class__(
+            sim.cfg).vertical_growth_rate()
+        with sim.nominal_plant():
+            assert np.array_equal(sim.R_el, R0)
+        assert sim.R_el[-1] == pytest.approx(0.5 * R0[-1])
+    finally:
+        sim.set_plant(1.0, 1.0)
+
+
+def test_env_plant_draw_override_and_reproducibility():
+    from tokamak.control.env import PlantRandomisation
+    e = TokamakControlEnv(EnvConfig(episode_steps=20), seed=0)
+    e.reset(seed=11)
+    d1 = dict(e.plant_draw)
+    e.reset(seed=11)
+    assert e.plant_draw == d1
+    pr = e.cfg.plant
+    assert pr.wall_res[0] <= d1["wall_res"] <= pr.wall_res[1]
+    assert pr.actuator_gain[0] <= d1["gain"] <= pr.actuator_gain[1]
+    e.reset(seed=11, plant={"wall_res": 1.7})
+    assert e.plant_draw == {"wall_res": 1.7, "plasma_res": 1.0, "gain": 1.0}
+    assert e.sim.plant["wall_res"] == 1.7
+    e2 = TokamakControlEnv(EnvConfig(plant=PlantRandomisation(enabled=False)))
+    e2.reset(seed=11)
+    assert e2.plant_draw == {"wall_res": 1.0, "plasma_res": 1.0, "gain": 1.0}
+
+
+def test_privileged_observation_and_asymmetric_critic():
+    e = TokamakControlEnv(EnvConfig(episode_steps=20, privileged=True), seed=0)
+    o = e.reset(seed=1)
+    assert o.shape == (e.obs_dim + e.priv_dim,)
+    ac = ActorCritic(e.obs_dim, e.act_dim, hidden=(16,), priv_dim=e.priv_dim,
+                     seed=0)
+    o2 = o.copy()
+    o2[e.obs_dim:] += 1.0                      # change only the privileged part
+    assert np.allclose(ac.mean_action(o), ac.mean_action(o2))   # actor blind
+    assert not np.allclose(ac.value(o), ac.value(o2))           # critic not
+    # the deployed controller accepts the hardware-only observation
+    assert np.allclose(ac.mean_action(o), ac.mean_action(o[:e.obs_dim]))
+    # and a gradient step only needs the full vector
+    ppo = PPO(ac)
+    rng = np.random.default_rng(0)
+    obs = rng.normal(size=(8, e.obs_dim + e.priv_dim))
+    act = rng.normal(size=(8, e.act_dim)) * 0.1
+    lp = ac.log_prob(ac.actor.forward(obs[:, :e.obs_dim])[0], act)
+    ppo.loss_and_grads(obs, act, lp, rng.normal(size=8), rng.normal(size=8))
+
+
+def test_asymmetric_policy_round_trips_through_disk(tmp_path):
+    ac = ActorCritic(6, 3, hidden=(8,), priv_dim=4, seed=2)
+    path = tmp_path / "p.npz"
+    ac.save(str(path))
+    bc = ActorCritic.load(str(path))
+    assert bc.priv_dim == 4
+    o = np.random.default_rng(0).normal(size=10)
+    assert np.allclose(ac.value(o), bc.value(o))
+
+
+def test_filter_off_still_enforces_voltage_limits_but_not_current():
+    e = TokamakControlEnv(EnvConfig(episode_steps=20, safety_enabled=False),
+                          seed=0)
+    e.reset(seed=1, disturb=False, plant={})
+    a = np.ones(e.act_dim)
+    _, _, _, _, info = e.step(a)
+    assert np.all(np.abs(info["V"]) <= e.V_max + 1e-9)
+    assert "I_over" in info
+
+
+def test_cosimulation_accepts_a_pinned_plant(env):
+    tr = CoSimulation(env).run(ZeroController(env.act_dim), steps=5, seed=1,
+                               plant={"wall_res": 1.3}, disturb=False)
+    assert env.plant_draw["wall_res"] == 1.3
+    assert "max_I_over" in tr.summary()

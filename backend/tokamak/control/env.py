@@ -90,17 +90,42 @@ class DisturbanceConfig:
 
 
 @dataclass
+class PlantRandomisation:
+    """Domain randomisation of the plant the controller is trained on.
+
+    The simulator's circuit model is a few percent wrong in ways nobody
+    knows in advance: vessel steel resistivity and joint resistance move the
+    wall time and with it the vertical growth rate; the plasma resistance
+    depends on Te and Z_eff; a thyristor supply has a gain error.  Drawn
+    log-uniformly once per episode (gain uniformly).  The feedforward, the
+    safety filter's prediction and the classical design all keep using the
+    nominal values -- the controller never sees the draw.
+    """
+    wall_res: tuple = (0.7, 1.5)         # x nominal vessel resistance
+    plasma_res: tuple = (0.5, 2.0)       # x nominal plasma resistance
+    actuator_gain: tuple = (0.85, 1.15)  # applied voltage / commanded voltage
+    enabled: bool = True
+
+
+@dataclass
 class EnvConfig:
     device: DeviceConfig = field(default_factory=DeviceConfig)
     sensors: SensorConfig = field(default_factory=SensorConfig)
     reward: RewardConfig = field(default_factory=RewardConfig)
     termination: TerminationConfig = field(default_factory=TerminationConfig)
     disturbance: DisturbanceConfig = field(default_factory=DisturbanceConfig)
+    plant: PlantRandomisation = field(default_factory=PlantRandomisation)
     dt: float = 1e-3
     n_sub: int = 2
     episode_steps: int = 500
     feedforward: bool = True
     safety_horizon: int = 5
+    #: append the privileged state (below) to the observation, for an
+    #: asymmetric critic; the actor reads only the first ``obs_dim`` entries
+    privileged: bool = False
+    #: False bypasses the current-limit constraint of block 4 (the voltage and
+    #: slew limits stay: they are the supplies' own), for the ablation
+    safety_enabled: bool = True
 
 
 class TokamakControlEnv:
@@ -129,11 +154,18 @@ class TokamakControlEnv:
         self._normals = np.stack([nR / nn, nZ / nn], axis=1)
         self.obs_dim = self.sensors.size + 3 + self.m
         self.act_dim = self.m
+        self.act_gain = 1.0
+        self.priv_dim = 0
         self.reset()
+        self.priv_dim = len(self.privileged_state())
 
     # ------------------------------------------------------------------
     def reset(self, seed: Optional[int] = None, delay: Optional[int] = None,
-              disturb: Optional[bool] = None) -> np.ndarray:
+              disturb: Optional[bool] = None,
+              plant: Optional[dict] = None) -> np.ndarray:
+        """Start an episode.  ``plant`` pins the plant for this episode
+        (keys wall_res, plasma_res, gain; missing ones are nominal) instead of
+        drawing it -- how out-of-distribution plants are tested."""
         if seed is not None:
             self.rng = np.random.default_rng(seed)
             self.sensors.rng = self.rng
@@ -141,6 +173,21 @@ class TokamakControlEnv:
         disturb = d.enabled if disturb is None else disturb
         kick = (self.rng.normal() * d.vs_kick_rel * self.sim.I_max[-1]
                 if disturb else 0.0)
+        pr = self.cfg.plant
+        if plant is not None:
+            draw = {"wall_res": plant.get("wall_res", 1.0),
+                    "plasma_res": plant.get("plasma_res", 1.0),
+                    "gain": plant.get("gain", 1.0)}
+        elif pr.enabled:
+            lu = lambda r: float(np.exp(self.rng.uniform(np.log(r[0]),
+                                                         np.log(r[1]))))
+            draw = {"wall_res": lu(pr.wall_res), "plasma_res": lu(pr.plasma_res),
+                    "gain": float(self.rng.uniform(*pr.actuator_gain))}
+        else:
+            draw = {"wall_res": 1.0, "plasma_res": 1.0, "gain": 1.0}
+        self.sim.set_plant(draw["wall_res"], draw["plasma_res"])
+        self.act_gain = draw["gain"]
+        self.plant_draw = draw
         self.sim.reset(vs_kick=kick)
         self.safety.reset()
         self.sensors.reset(delay=delay)
@@ -170,9 +217,34 @@ class TokamakControlEnv:
         sc = self.sensors.scale
         err = np.array([(y[0] - self.R_ref) / sc[0], (y[1] - self.Z_ref) / sc[1],
                         (y[2] - self.Ip_ref) / sc[2]])
-        obs = np.concatenate([s, err, self.a_prev])
+        obs = np.clip(np.concatenate([s, err, self.a_prev]), -10.0, 10.0)
         self.last_measurement = y
-        return np.clip(obs, -10.0, 10.0)
+        if self.cfg.privileged:
+            obs = np.concatenate([obs, self.privileged_state()])
+        return obs
+
+    def privileged_state(self) -> np.ndarray:
+        """What only the simulator knows, for the critic during training.
+
+        The true (undelayed, noise-free) position, current and coil state, the
+        vessel currents, the internal parameters l_i and beta_p, and the
+        plant draw of this episode (wall and plasma resistance, supply gain)
+        and the sensor delay.  With these the value function is nearly a
+        function of the state alone, so its advantage estimates carry far
+        less of the randomisation's variance.
+        """
+        s = self.sim
+        st = self.state
+        p = s.plasma
+        d = self.plant_draw
+        return np.concatenate([
+            [(st.R_c - self.R_ref) / 0.05, (st.Z_c - self.Z_ref) / 0.05,
+             (st.Ip - self.Ip_ref) / (0.05 * s.Ip0)],
+            st.I_coils / s.I_max,
+            st.I_vessel / (0.01 * s.Ip0),
+            [(s.li - p.li) / 0.05, (s.beta_p - p.beta_p) / 0.1],
+            [np.log(d["wall_res"]), np.log(d["plasma_res"]), d["gain"] - 1.0],
+            [self.sensors.delay / 3.0]])
 
     # ------------------------------------------------------------------
     def target_voltage(self, action: np.ndarray) -> np.ndarray:
@@ -215,14 +287,20 @@ class TokamakControlEnv:
         # plasma diagnostics the network sees through block 2
         V_t = self.target_voltage(a)
         M = s._M_now()
-        a_lin, B_lin = self.safety.current_model(M, s.R_el, s.I, c.dt, self.m)
-        filt = self.safety(V_t, a_lin, B_lin, V_prev=self.V_prev)
-        V = filt.V
+        a_lin, B_lin = self.safety.current_model(M, s.R_nom, s.I, c.dt, self.m)
+        if c.safety_enabled:
+            filt = self.safety(V_t, a_lin, B_lin, V_prev=self.V_prev)
+            V = filt.V
+            intervened, feasible = filt.intervened, filt.feasible
+        else:
+            lo, hi = self.safety.box(self.V_prev)
+            V = np.clip(V_t, lo, hi)
+            intervened, feasible = bool(np.any(V != V_t)), True
 
-        # block 1: advance the plant
+        # block 1: advance the plant (through the supplies' gain error)
         reason = None
         try:
-            st = s.step(V)
+            st = s.step(self.act_gain * V)
         except LossOfEquilibrium:
             st = None
             reason = "VDE: тік тепе-теңдік жоғалды"
@@ -266,7 +344,8 @@ class TokamakControlEnv:
         info = {
             "t": s.t, "reason": reason, "terms": terms,
             "e_pos": e_pos, "e_shape": e_shp, "V": V, "V_target": V_t,
-            "qp_intervened": filt.intervened, "qp_feasible": filt.feasible,
+            "qp_intervened": intervened, "qp_feasible": feasible,
+            "I_over": float(np.max(np.abs(s.I[:self.m]) / s.I_max)),
             "R_c": st.R_c, "Z_c": st.Z_c, "Ip": st.Ip, "d_min": st.d_min,
             "R_ref": self.R_ref, "Z_ref": self.Z_ref,
         }

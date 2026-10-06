@@ -537,10 +537,14 @@ import threading
 
 _CONTROL: dict = {}
 _CONTROL_LOCK = threading.Lock()
-_POLICY_PATH = os.environ.get(
-    "TOKAMAK_POLICY",
-    os.path.join(os.path.dirname(__file__), "..", "tokamak", "control",
-                 "policy.npz"))
+_CTRL_DIR = os.path.join(os.path.dirname(__file__), "..", "tokamak", "control")
+#: trained policies; ``policy`` is the plant-randomised, asymmetric-critic one
+_POLICIES = {
+    "policy": os.environ.get("TOKAMAK_POLICY",
+                             os.path.join(_CTRL_DIR, "policy.npz")),
+    "policy_ppo_dr": os.path.join(_CTRL_DIR, "policy_ppo_dr.npz"),
+    "policy_ppo0": os.path.join(_CTRL_DIR, "policy_ppo0.npz"),
+}
 
 
 def _control_env(machine: str):
@@ -558,12 +562,21 @@ def _control_env(machine: str):
 
 class ControlRunRequest(BaseModel):
     machine: str = "ktm"
-    controller: str = Field("pid", description="pid | policy | open_loop")
+    controller: str = Field(
+        "pid", description="pid | policy | policy_ppo_dr | policy_ppo0 | "
+                           "open_loop")
     steps: int = Field(500, ge=1, le=3000)
     seed: int = 0
     delay_ms: Optional[int] = Field(None, ge=0, le=5)
     disturb: bool = True
     every: int = Field(5, ge=1, le=100, description="trace decimation")
+    # the plant the episode runs on, relative to the nominal model; the
+    # controllers never see these.  randomise_plant draws them from the
+    # training distribution and overrides the three fields below.
+    wall_res: float = Field(1.0, gt=0.1, lt=10.0)
+    plasma_res: float = Field(1.0, gt=0.1, lt=10.0)
+    gain: float = Field(1.0, gt=0.1, lt=3.0)
+    randomise_plant: bool = False
 
 
 @app.get("/control/contract")
@@ -586,7 +599,8 @@ def control_contract(machine: str = "ktm") -> dict:
                 "equilibrium": s.plasma.gs_summary,
             },
             "termination": env.cfg.termination.__dict__,
-            "policy_available": os.path.exists(_POLICY_PATH),
+            "policies_available": [k for k, v in _POLICIES.items()
+                                   if os.path.exists(v)],
         })
 
 
@@ -603,11 +617,12 @@ def control_run(req: ControlRunRequest) -> dict:
             if c["pid"] is None:
                 c["pid"] = PIDController(env)
             ctrl = c["pid"]
-        elif req.controller == "policy":
-            if not os.path.exists(_POLICY_PATH):
+        elif req.controller in _POLICIES:
+            path = _POLICIES[req.controller]
+            if not os.path.exists(path):
                 raise HTTPException(404, "no trained policy; run "
                                          "python -m tokamak.control.train")
-            ac = ActorCritic.load(_POLICY_PATH)
+            ac = ActorCritic.load(path)
             if ac.obs_dim != env.obs_dim or ac.act_dim != env.act_dim:
                 raise HTTPException(400, "the trained policy was made for a "
                                          "different device")
@@ -616,11 +631,16 @@ def control_run(req: ControlRunRequest) -> dict:
             ctrl = ZeroController(env.act_dim)
         else:
             raise HTTPException(400, f"unknown controller {req.controller!r}")
+        plant = None if req.randomise_plant else {
+            "wall_res": req.wall_res, "plasma_res": req.plasma_res,
+            "gain": req.gain}
         tr = CoSimulation(env).run(ctrl, steps=req.steps, seed=req.seed,
-                                   delay=req.delay_ms, disturb=req.disturb)
+                                   delay=req.delay_ms, disturb=req.disturb,
+                                   plant=plant)
         return jsonable({"controller": req.controller,
                          "machine": env.sim.machine.label,
                          "delay_ms": env.sensors.delay,
+                         "plant": env.plant_draw,
                          "trace": tr.to_dict(every=req.every)})
 
 

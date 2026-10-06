@@ -118,17 +118,25 @@ def clip_grads(grads, max_norm):
 
 # ---------------------------------------------------------------------------
 class ActorCritic:
-    """pi_theta(A|S) and V_phi(S)."""
+    """pi_theta(A|S) and V_phi(S), optionally with an asymmetric critic.
+
+    Every method takes one observation array.  With ``priv_dim > 0`` that
+    array is ``[S_t, privileged_t]``: the actor reads only the first
+    ``obs_dim`` entries -- exactly what the hardware interface provides --
+    while the critic sees all of it.  The critic is only used in training,
+    so what it knows never has to exist on the real machine.
+    """
 
     def __init__(self, obs_dim: int, act_dim: int, hidden=(128, 128),
                  log_std_init: float = -1.2, seed: int = 0,
-                 value_scale: float = 100.0):
+                 value_scale: float = 100.0, priv_dim: int = 0):
         self.rng = np.random.default_rng(seed)
         self.obs_dim, self.act_dim = obs_dim, act_dim
+        self.priv_dim = int(priv_dim)
         self.hidden = tuple(hidden)
         self.actor = MLP([obs_dim, *hidden, act_dim], out_tanh=True,
                          rng=self.rng, out_gain=0.01)
-        self.critic = MLP([obs_dim, *hidden, 1], out_tanh=False,
+        self.critic = MLP([obs_dim + self.priv_dim, *hidden, 1], out_tanh=False,
                           rng=self.rng, out_gain=1.0)
         self.log_std = np.full(act_dim, float(log_std_init))
         # The critic's raw output is V / value_scale.  Returns here are
@@ -141,7 +149,7 @@ class ActorCritic:
     def act(self, obs: np.ndarray, deterministic: bool = False):
         """Returns (action, log_prob, value) for one observation."""
         o = np.asarray(obs, float)[None]
-        mu, _ = self.actor.forward(o)
+        mu, _ = self.actor.forward(o[:, :self.obs_dim])
         v, _ = self.critic.forward(o)
         v = v * self.value_scale
         mu = mu[0]
@@ -153,7 +161,7 @@ class ActorCritic:
 
     def mean_action(self, obs: np.ndarray) -> np.ndarray:
         """A_t = tanh(W_L h + b_L): the deployed controller."""
-        mu, _ = self.actor.forward(np.asarray(obs, float)[None])
+        mu, _ = self.actor.forward(np.asarray(obs, float)[None, :self.obs_dim])
         return mu[0]
 
     def value(self, obs: np.ndarray) -> np.ndarray:
@@ -182,6 +190,7 @@ class ActorCritic:
         d.update({f"critic_{k}": p for k, p in enumerate(self.critic.params)})
         d["log_std"] = self.log_std
         d["value_scale"] = np.array(self.value_scale)
+        d["priv_dim"] = np.array(self.priv_dim)
         d["sizes"] = np.array([self.obs_dim, self.act_dim, *self.hidden])
         return d
 
@@ -195,7 +204,8 @@ class ActorCritic:
         sizes = [int(x) for x in d["sizes"]]
         ac = cls(sizes[0], sizes[1], hidden=tuple(sizes[2:]),
                  value_scale=float(d["value_scale"]) if "value_scale" in d
-                 else 100.0)
+                 else 100.0,
+                 priv_dim=int(d["priv_dim"]) if "priv_dim" in d else 0)
         for k in range(len(ac.actor.params)):
             ac.actor.params[k][...] = d[f"actor_{k}"]
         for k in range(len(ac.critic.params)):
@@ -279,7 +289,7 @@ class PPO:
         c = self.cfg
         ac = self.ac
         N = len(obs)
-        mu, acts_pi = ac.actor.forward(obs)
+        mu, acts_pi = ac.actor.forward(obs[:, :ac.obs_dim])
         std = np.exp(ac.log_std)
         logp = ac.log_prob(mu, act)
         ratio = np.exp(logp - logp_old)
@@ -363,11 +373,11 @@ def behaviour_clone(ac: ActorCritic, obs: np.ndarray, act: np.ndarray,
         perm = rng.permutation(n)
         for s in range(0, n, batch):
             idx = perm[s:s + batch]
-            mu, acts = ac.actor.forward(obs[idx])
+            mu, acts = ac.actor.forward(obs[idx][:, :ac.obs_dim])
             g = 2.0 * (mu - target[idx]) / len(idx)
             grads = ac.actor.backward(acts, g)
             grads, _ = clip_grads(grads, 5.0)
             opt.step(grads)
-        mu, _ = ac.actor.forward(obs)
+        mu, _ = ac.actor.forward(obs[:, :ac.obs_dim])
         mse = float(np.mean((mu - target) ** 2))
     return mse

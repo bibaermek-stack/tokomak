@@ -78,6 +78,7 @@ class Trace:
     V_target: list = field(default_factory=list)
     qp: list = field(default_factory=list)
     R_ref: list = field(default_factory=list)
+    I_over: list = field(default_factory=list)
     Z_ref: list = field(default_factory=list)
     reason: Optional[str] = None
     wall_time_s: float = 0.0
@@ -98,6 +99,8 @@ class Trace:
             "max_abs_Z_mm": float(np.max(np.abs(self.Z_c)) * 1e3),
             "rms_shape_error_mm": float(np.sqrt(np.mean(np.square(self.e_shape))) * 1e3),
             "min_wall_gap_mm": float(np.min(self.d_min) * 1e3),
+            "max_I_over": float(np.max(self.I_over)),
+            "frac_steps_over_limit": float(np.mean(np.array(self.I_over) > 1.0)),
             "qp_intervention_frac": float(np.mean(self.qp)),
             "ms_per_step": float(self.wall_time_s / n * 1e3),
         }
@@ -126,9 +129,10 @@ class CoSimulation:
 
     def run(self, controller: Controller, steps: Optional[int] = None,
             seed: Optional[int] = None, delay: Optional[int] = None,
-            disturb: Optional[bool] = None) -> Trace:
+            disturb: Optional[bool] = None,
+            plant: Optional[dict] = None) -> Trace:
         env = self.env
-        obs = env.reset(seed=seed, delay=delay, disturb=disturb)
+        obs = env.reset(seed=seed, delay=delay, disturb=disturb, plant=plant)
         if hasattr(controller, "reset"):
             controller.reset()
         steps = steps or env.cfg.episode_steps
@@ -144,6 +148,7 @@ class CoSimulation:
             tr.V.append(info["V"]); tr.V_target.append(info["V_target"])
             tr.qp.append(info["qp_intervened"])
             tr.R_ref.append(info["R_ref"]); tr.Z_ref.append(info["Z_ref"])
+            tr.I_over.append(info["I_over"])
             if term:
                 tr.reason = info["reason"]
                 break

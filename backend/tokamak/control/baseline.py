@@ -91,6 +91,74 @@ def closed_loop_radius(lin: LinearModel, loops, delay: int) -> float:
     return float(np.max(np.abs(np.linalg.eigvals(Acl))))
 
 
+def design_vertical(models, delays, n_kp: int = 19, n_kd: int = 19,
+                    refine: bool = False) -> tuple:
+    """VS PD gains (kp [V/m], kd [V s/m]) and the worst spectral radius.
+
+    Grid search, log-spaced around the scale set by the plant's static gain,
+    over both signs; the pair deepest inside the stable set of every model
+    and every delay is returned (see :func:`deepest_stable`).  If nothing
+    stabilises, the radius returned is above 1.  Near the controllability
+    limit the stable region is a thin sliver; a coarse grid misses it, so
+    ``n_kp``/``n_kd`` must be raised when the question is whether *any* pair
+    stabilises (the limit analysis uses 45 x 45).
+    """
+    lin0 = models[0]
+    e_vs = np.zeros(lin0.B.shape[1]); e_vs[-1] = 1.0
+    sc = 1.0 / max(abs(lin0.C[1] @ lin0.B[:, -1]), 1e-30) / 1e3
+    kps = sc * np.logspace(-2, 1, n_kp)
+    kds = np.concatenate([[0.0], sc * lin0.dt * np.logspace(-1, 2, n_kd)])
+    cands = []
+    for sgn in (1.0, -1.0):
+        R = np.array([[max(closed_loop_radius(
+            lin, [Loop(lin.C[1], e_vs, sgn * kp, sgn * kd)], d)
+            for lin in models for d in delays) for kd in kds] for kp in kps])
+        (i, j), depth = deepest_stable(R)
+        cands.append((float(R[i, j]), depth, sgn * kps[i], sgn * kds[j]))
+    # Depth is only meaningful inside a stable set.  A sign for which nothing
+    # stabilises has a flat plateau of equally-bad points that can look
+    # "deeper" than a thin stable sliver, so stable candidates win outright.
+    if refine:
+        cands += _refine_vertical(models, delays, e_vs, sc, lin0.dt)
+    stable = [c for c in cands if c[0] < STABLE_RHO]
+    best = max(stable, key=lambda c: c[1]) if stable \
+        else min(cands, key=lambda c: c[0])
+    return float(best[2]), float(best[3]), float(best[0])
+
+
+def _refine_vertical(models, delays, e_vs, sc, dt, starts_per_sign=12):
+    """Nelder-Mead on the worst spectral radius, multi-start.
+
+    Near the controllability limit the stabilising (kp, kd) region is a thin
+    sliver that a log grid hits or misses by luck; a local search from a
+    spread of starts does not depend on where the grid points fall.
+    """
+    from scipy.optimize import minimize
+
+    def rho(u, sgn):
+        kp, kd = sgn * sc * np.exp(u[0]), sgn * sc * dt * np.exp(u[1])
+        return max(closed_loop_radius(lin, [Loop(lin.C[1], e_vs, kp, kd)], d)
+                   for lin in models for d in delays)
+    out = []
+    rng = np.random.default_rng(0)
+    for sgn in (1.0, -1.0):
+        starts = [(np.log(10 ** rng.uniform(-2, 1)),
+                   np.log(10 ** rng.uniform(-1, 2)))
+                  for _ in range(starts_per_sign)]
+        for u0 in starts:
+            r = minimize(rho, u0, args=(sgn,), method="Nelder-Mead",
+                         options={"xatol": 1e-3, "fatol": 1e-9, "maxiter": 150})
+            kp = sgn * sc * float(np.exp(r.x[0]))
+            kd = sgn * sc * dt * float(np.exp(r.x[1]))
+            out.append((float(r.fun), 1.0, kp, kd))
+    return out
+
+
+#: spectral radius below which a loop counts as stabilised (the slow circuit
+#: modes sit at 1 exactly, hence the margin)
+STABLE_RHO = 1.0005
+
+
 def deepest_stable(R: np.ndarray) -> tuple:
     """Grid index deepest inside the set where R is at its minimum.
 
@@ -147,7 +215,8 @@ class PIDController:
         self.volt_R = self.L * self.pattern_R
         self.design_info = {}
         if None in (self.g.kp_z, self.g.kd_z, self.g.kp_r, self.g.ki_r):
-            self.design()
+            with s.nominal_plant():
+                self.design()
         self.reset()
 
     # ------------------------------------------------------------------
@@ -202,20 +271,8 @@ class PIDController:
 
         # vertical first, everything else open
         if g.kp_z is None or g.kd_z is None:
-            lin0 = models[0]
-            sc = 1.0 / max(abs(lin0.C[1] @ lin0.B[:, -1]), 1e-30) / 1e3
-            kps = sc * np.logspace(-2, 1, 19)
-            kds = np.concatenate([[0.0], sc * lin0.dt * np.logspace(-1, 2, 19)])
-            best = None
-            for sgn in (1.0, -1.0):
-                R = np.array([[worst(lambda lin: [Loop(lin.C[1], e_vs,
-                                                       sgn * kp, sgn * kd)])
-                               for kd in kds] for kp in kps])
-                (i, j), depth = deepest_stable(R)
-                if best is None or depth > best[0]:
-                    best = (depth, sgn * kps[i], sgn * kds[j], R[i, j])
-            g.kp_z, g.kd_z = float(best[1]), float(best[2])
-            self.design_info["vertical_rho"] = float(best[3])
+            g.kp_z, g.kd_z, rho = design_vertical(models, delays)
+            self.design_info["vertical_rho"] = rho
         # then radial, with the vertical loop closed
         if g.kp_r is None or g.ki_r is None:
             kps = np.logspace(0, 3, 13)
@@ -252,7 +309,7 @@ class PIDController:
             self.zdot += g.z_filter * ((Zc - self.z_prev) / dt - self.zdot)
         self.z_prev = Zc
 
-        V_ff = s.feedforward() if env.cfg.feedforward else s.R_el[:self.m] * I
+        V_ff = s.feedforward() if env.cfg.feedforward else s.R_nom[:self.m] * I
         V = V_ff.copy()
         # slow: hold the PF currents, walk the vertical equilibrium point
         # onto the reference so the VS current returns to zero

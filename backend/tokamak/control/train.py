@@ -28,7 +28,7 @@ from typing import Optional
 import numpy as np
 
 from .baseline import PIDController
-from .env import EnvConfig, TokamakControlEnv
+from .env import EnvConfig, PlantRandomisation, TokamakControlEnv
 from .loop import CoSimulation, NeuralController
 from .policy import (ActorCritic, PPO, PPOConfig, RolloutBuffer, Adam,
                      behaviour_clone, clip_grads)
@@ -99,15 +99,30 @@ def train(ppo_steps: int = 200_000, bc_episodes: int = 20,
           rollout: int = 2048, episode_steps: int = 500,
           hidden=(128, 128), log_std: float = -2.5, seed: int = 0,
           eval_seeds=range(1000, 1006), out: Optional[str] = None,
-          ppo_cfg: Optional[PPOConfig] = None, log=print) -> dict:
-    env = TokamakControlEnv(EnvConfig(episode_steps=episode_steps), seed=seed)
+          ppo_cfg: Optional[PPOConfig] = None, log=print,
+          asymmetric: bool = False, randomise_plant: bool = True) -> dict:
+    """Clone the classical controller, then fine-tune with PPO.
+
+    ``randomise_plant`` draws the vessel and plasma resistance and the supply
+    gain afresh every episode; ``asymmetric`` gives the critic the privileged
+    simulator state (see :meth:`TokamakControlEnv.privileged_state`) while
+    the actor keeps the hardware-only observation.
+    """
+    env = TokamakControlEnv(
+        EnvConfig(episode_steps=episode_steps, privileged=asymmetric,
+                  plant=PlantRandomisation(enabled=randomise_plant)),
+        seed=seed)
     expert = PIDController(env)
     log(f"device: {env.sim.coil_names}, vertical growth "
         f"{env.sim.vertical_growth_rate():.0f}/s, "
         f"PID gains kp_z={expert.g.kp_z:.0f} kd_z={expert.g.kd_z:.2f}")
 
     ac = ActorCritic(env.obs_dim, env.act_dim, hidden=hidden,
-                     log_std_init=log_std, seed=seed)
+                     log_std_init=log_std, seed=seed,
+                     priv_dim=env.priv_dim if asymmetric else 0)
+    log(f"actor input {env.obs_dim}, critic input "
+        f"{env.obs_dim + ac.priv_dim}, plant randomisation "
+        f"{'on' if randomise_plant else 'off'}")
     history = {"expert": None, "bc": None, "ppo": []}
     if bc_episodes > 0:
         t0 = time.time()
@@ -184,10 +199,15 @@ def main(argv=None):
     p.add_argument("--log-std", type=float, default=-2.5)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default="policy.npz")
+    p.add_argument("--asymmetric", action="store_true",
+                   help="critic sees the privileged simulator state")
+    p.add_argument("--no-randomise-plant", action="store_true",
+                   help="train on the nominal plant only")
     a = p.parse_args(argv)
     train(ppo_steps=a.ppo_steps, bc_episodes=a.bc_episodes,
           rollout=a.rollout, episode_steps=a.episode_steps,
-          log_std=a.log_std, seed=a.seed, out=a.out)
+          log_std=a.log_std, seed=a.seed, out=a.out,
+          asymmetric=a.asymmetric, randomise_plant=not a.no_randomise_plant)
 
 
 if __name__ == "__main__":
