@@ -14,6 +14,10 @@ CAVEAT_JTEXT = ("Модель НАҚТЫ J-TEXT токамагының 1 кГц 
                 "(Kaggle: multi-machine-disruption-prediction-challenge). "
                 "Хронологиялық бөлініспен бағаланған.")
 
+CAVEAT_FEC = ("Модель НАҚТЫ DIII-D токамагының магниттік диагностикаларынан (FEC Challenge, "
+               "Kaggle: anulum/fec-tables-holdout) плазма тепе-теңдігін (R_axis, Z_axis, "
+               "q95, beta_N, kappa, triangularity) қалпына келтіретін терең нейрондық желі (MLP).")
+
 _cache: dict = {}
 
 
@@ -41,28 +45,60 @@ def _load_jtext() -> Optional[dict]:
     return bundle
 
 
+def _load_jtext_neural() -> Optional[dict]:
+    if "bundle_jtext_neural" in _cache:
+        return _cache["bundle_jtext_neural"]
+    path = MODELS / "jtext_neural_disruption.joblib"
+    bundle = None
+    if path.is_file():
+        import joblib
+        bundle = joblib.load(path)
+    _cache["bundle_jtext_neural"] = bundle
+    return bundle
+
+
+def _load_equilibrium_neural() -> Optional[dict]:
+    if "bundle_eq_neural" in _cache:
+        return _cache["bundle_eq_neural"]
+    path = MODELS / "neural_equilibrium.joblib"
+    bundle = None
+    if path.is_file():
+        import joblib
+        bundle = joblib.load(path)
+    _cache["bundle_eq_neural"] = bundle
+    return bundle
+
+
 def status() -> dict:
     try:
         bsyn = _load_synthetic()
         bjtext = _load_jtext()
+        b_jtext_nn = _load_jtext_neural()
+        b_eq_nn = _load_equilibrium_neural()
         err = None
     except ImportError as exc:
-        bsyn, bjtext, err = None, None, f"missing dependency: {exc.name}"
+        bsyn, bjtext, b_jtext_nn, b_eq_nn, err = None, None, None, None, f"missing dependency: {exc.name}"
 
     rep_syn = MODELS / "disruption_report.json"
     rep_jtext = MODELS / "jtext_report.json"
+    rep_eq = MODELS / "neural_equilibrium_report.json"
 
     return {
         "synthetic_model_available": bsyn is not None,
         "jtext_real_model_available": bjtext is not None,
+        "jtext_neural_network_available": b_jtext_nn is not None,
+        "neural_equilibrium_model_available": b_eq_nn is not None,
         "error": err,
         "synthetic_report": json.loads(rep_syn.read_text(encoding="utf-8"))
         if rep_syn.is_file() else None,
         "jtext_report": json.loads(rep_jtext.read_text(encoding="utf-8"))
         if rep_jtext.is_file() else None,
+        "neural_equilibrium_report": json.loads(rep_eq.read_text(encoding="utf-8"))
+        if rep_eq.is_file() else None,
         "caveats": {
             "synthetic": CAVEAT_SYNTHETIC,
             "jtext": CAVEAT_JTEXT,
+            "fec": CAVEAT_FEC,
         },
     }
 
@@ -80,12 +116,27 @@ def disruption_risk(B: float, Ip: float, P_heat: float, ne19: float,
     return float(bundle["model"].predict_proba(x)[0, 1])
 
 
-def jtext_risk_from_features(feat_dict: dict) -> float:
+def jtext_risk_from_features(feat_dict: dict, use_neural: bool = False) -> float:
     """Risk from raw J-TEXT 1kHz feature mapping or precomputed vector."""
-    bundle = _load_jtext()
+    bundle = _load_jtext_neural() if use_neural else _load_jtext()
+    if bundle is None:
+        bundle = _load_jtext()
     if bundle is None:
         raise LookupError("no trained J-TEXT model; run python -m ml.train_jtext")
     clf = bundle["model"]
     features = bundle["features"]
     row = [feat_dict.get(f, 0.0) for f in features]
     return float(clf.predict_proba([row])[0, 1])
+
+
+def predict_equilibrium_neural(features_367) -> dict:
+    """Reconstruct equilibrium parameters from 367 DIII-D magnetic diagnostics."""
+    import numpy as np
+    bundle = _load_equilibrium_neural()
+    if bundle is None:
+        raise LookupError("no trained equilibrium neural network; run python -m ml.train_equilibrium_neural")
+    model = bundle["model"]
+    names = bundle["target_names"]
+    arr = np.asarray(features_367, float)
+    pred = model.predict(np.atleast_2d(arr))[0]
+    return {name: float(val) for name, val in zip(names, pred)}

@@ -39,3 +39,24 @@ def test_disruption_risk_invalid_inputs():
         "B": -1.0, "Ip": 8.0, "P_heat": 20.0, "ne19": 15.0, "Ti_kev": 8.0
     })
     assert resp.status_code == 422
+
+
+def test_equilibrium_neural_prediction():
+    # 367 dummy magnetic features
+    features = [0.1] * 367
+    resp = client.post("/ml/equilibrium-neural", json={"features": features})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "prediction" in data
+    pred = data["prediction"]
+    assert "r_axis" in pred
+    assert "z_axis" in pred
+    assert "q95" in pred
+    assert "beta_n" in pred
+    assert "caveat" in data
+
+
+def test_equilibrium_neural_wrong_dimension():
+    # Wrong number of features (e.g. 10 instead of 367)
+    resp = client.post("/ml/equilibrium-neural", json={"features": [0.1] * 10})
+    assert resp.status_code == 400

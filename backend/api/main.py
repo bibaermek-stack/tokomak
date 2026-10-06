@@ -21,6 +21,7 @@ Endpoints
     GET  /ai/files/{name}          download one advisor file
     GET  /ml/status                trained data-driven models (Kaggle)
     POST /ml/disruption-risk       disruption probability from a data-driven model
+    POST /ml/equilibrium-neural    reconstruct equilibrium from DIII-D magnetics (NN)
 
 Model selection is the organising idea: ``/models`` lists what can be
 chosen, every request names the models it wants, and every response echoes
@@ -253,6 +254,22 @@ def ml_disruption_risk(req: DisruptionRiskRequest) -> dict:
     except (LookupError, ImportError) as exc:
         raise HTTPException(503, str(exc)) from None
     return {"probability": p, "inputs": req.model_dump(), "caveat": CAVEAT_SYNTHETIC}
+
+
+class EquilibriumNeuralRequest(BaseModel):
+    features: List[float] = Field(..., description="367 magnetic probe & flux loop sensor values from DIII-D")
+
+
+@app.post("/ml/equilibrium-neural")
+def ml_equilibrium_neural(req: EquilibriumNeuralRequest) -> dict:
+    from ml.risk import CAVEAT_FEC, predict_equilibrium_neural
+    if len(req.features) != 367:
+        raise HTTPException(400, f"expected 367 magnetic features, got {len(req.features)}")
+    try:
+        preds = predict_equilibrium_neural(req.features)
+    except (LookupError, ImportError) as exc:
+        raise HTTPException(503, str(exc)) from None
+    return {"prediction": preds, "caveat": CAVEAT_FEC}
 
 
 @app.get("/ai/imas")

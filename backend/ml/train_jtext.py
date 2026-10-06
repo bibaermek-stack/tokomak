@@ -29,6 +29,9 @@ import joblib
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.metrics import average_precision_score, roc_auc_score
+from sklearn.neural_network import MLPClassifier
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from . import jtext
 from .kaggle_fetch import JTEXT_DIR
@@ -132,6 +135,8 @@ def main(limit: int = 0) -> None:
 
     Xtr, ytr = stack(tr)
     print(f"train samples {len(ytr)}, positive {ytr.mean():.2%}")
+
+    print("Training HistGradientBoosting...")
     clf = HistGradientBoostingClassifier(
         max_iter=300, learning_rate=0.06, max_leaf_nodes=31,
         l2_regularization=1.0, class_weight="balanced",
@@ -139,9 +144,28 @@ def main(limit: int = 0) -> None:
     clf.fit(Xtr, ytr)
     print(f"boosting rounds used: {clf.n_iter_}")
 
+    print("Training Deep Neural Network (MLP)...")
+    nn = make_pipeline(
+        StandardScaler(),
+        MLPClassifier(
+            hidden_layer_sizes=(128, 64),
+            activation="tanh",
+            solver="adam",
+            learning_rate_init=1e-3,
+            max_iter=50,
+            early_stopping=True,
+            validation_fraction=0.15,
+            random_state=0,
+        )
+    )
+    nn.fit(Xtr, ytr)
+    print("Neural Network training complete.")
+
     names = jtext.feature_names()
     gk = names.index("ne_nG:value")
     results = [
+        evaluate("neural network (MLP)", lambda X: nn.predict_proba(X)[:, 1],
+                 va, te),
         evaluate("gradient boosting", lambda X: clf.predict_proba(X)[:, 1],
                  va, te),
         evaluate("baseline: Greenwald fraction only", lambda X: X[:, gk],
@@ -152,9 +176,13 @@ def main(limit: int = 0) -> None:
         _show(r)
 
     OUT.mkdir(exist_ok=True)
-    joblib.dump({"model": clf, "features": names,
+    joblib.dump({"model": nn, "features": names,
                  "signals": jtext.SIGNALS,
                  "threshold": results[0]["threshold"], "hold": HOLD,
+                 "min_warning_s": MIN_WARNING}, OUT / "jtext_neural_disruption.joblib")
+    joblib.dump({"model": clf, "features": names,
+                 "signals": jtext.SIGNALS,
+                 "threshold": results[1]["threshold"], "hold": HOLD,
                  "min_warning_s": MIN_WARNING}, OUT / "jtext_disruption.joblib")
     (OUT / "jtext_report.json").write_text(json.dumps({
         "data": "hark99/multi-machine-disruption-prediction-challenge "
@@ -163,7 +191,7 @@ def main(limit: int = 0) -> None:
         "warn_window_s": WARN_WINDOW, "min_warning_s": MIN_WARNING,
         "far_target": FAR_TARGET, "hold": HOLD, "shots": n,
         "results": results}, indent=1), encoding="utf-8")
-    print("\nsaved", OUT)
+    print("\nsaved models and jtext_report.json to", OUT)
 
 
 if __name__ == "__main__":
