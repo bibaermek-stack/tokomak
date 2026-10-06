@@ -19,6 +19,8 @@ Endpoints
     POST /ai/chat                  advisor: advice + confirm-only proposals
     GET  /ai/files                 sandboxed advisor files
     GET  /ai/files/{name}          download one advisor file
+    GET  /ml/status                trained data-driven models (Kaggle)
+    POST /ml/disruption-risk       disruption probability from a data-driven model
 
 Model selection is the organising idea: ``/models`` lists what can be
 chosen, every request names the models it wants, and every response echoes
@@ -215,6 +217,15 @@ class ChatRequest(BaseModel):
     attachments: Optional[List[str]] = None
 
 
+class DisruptionRiskRequest(BaseModel):
+    B: float = Field(..., gt=0, le=15, description="Тл")
+    Ip: float = Field(..., gt=0, le=30, description="МА")
+    P_heat: float = Field(..., ge=0, le=1000, description="МВт")
+    ne19: float = Field(..., gt=0, le=500, description="1e19 м^-3")
+    Ti_kev: float = Field(..., gt=0, le=200)
+    h_mode: bool = False
+
+
 # ---------------------------------------------------------------------------
 @app.get("/health")
 def health() -> dict:
@@ -225,6 +236,23 @@ def health() -> dict:
 def ai_health() -> dict:
     from ai.operator import health as advisor_health
     return advisor_health()
+
+
+@app.get("/ml/status")
+def ml_status() -> dict:
+    from ml.risk import status
+    return status()
+
+
+@app.post("/ml/disruption-risk")
+def ml_disruption_risk(req: DisruptionRiskRequest) -> dict:
+    from ml.risk import CAVEAT_SYNTHETIC, disruption_risk
+    try:
+        p = disruption_risk(req.B, req.Ip, req.P_heat, req.ne19,
+                            req.Ti_kev, req.h_mode)
+    except (LookupError, ImportError) as exc:
+        raise HTTPException(503, str(exc)) from None
+    return {"probability": p, "inputs": req.model_dump(), "caveat": CAVEAT_SYNTHETIC}
 
 
 @app.get("/ai/imas")
