@@ -154,6 +154,27 @@ def table_cost(r):
                 ["l", "r", "r", "r", "r", "r"], [14, 12, 12, 18, 16, 12])
 
 
+def table_jtext(r):
+    rows = []
+    for m in r["jtext"]["results"]:
+        t = m["test"]
+        w = t["median_warning_ms"]
+        rows.append([m["name"], f"{t['predicted']}/{t['disruptive']}",
+                     pct(t["tpr"], 1), f"{t['false_alarms']}/{t['non_disruptive']}",
+                     pct(t["far"], 1), "—" if w is None else pm(w, ".0f"),
+                     pm(m["test_sample_roc_auc"], ".3f")])
+    return pipe(["Модель", "Табылған үзілістер", "TPR", "Жалған дабыл",
+                 "FAR", "Ескерту, мс (медиана)", "ROC-AUC"], rows,
+                ["l", "r", "r", "r", "r", "r", "r"], [22, 12, 8, 11, 8, 14, 9])
+
+
+def jtext_best(r):
+    """Model with the highest test TPR (ties: lower FAR) -- no judgement baked in."""
+    best = max(r["jtext"]["results"],
+               key=lambda m: (m["test"]["tpr"], -m["test"]["far"]))
+    return best["name"]
+
+
 def table_growth(r):
     rows = {}
     for x in r["growth"]:
@@ -247,7 +268,7 @@ def corr_gamma_delay(r, idxs):
     return [r["draws"][i]["gamma"] * r["draws"][i]["delay"] * 1e-3 for i in idxs]
 
 
-TABLES = {"seeds": table_seeds, "main": table_main, "ood": table_ood, "delay": table_delay,
+TABLES = {"jtext": lambda r: table_jtext(r), "seeds": table_seeds, "main": table_main, "ood": table_ood, "delay": table_delay,
           "safety": table_safety, "cost": table_cost, "growth": table_growth}
 
 
@@ -313,7 +334,8 @@ def expand(text, r):
                "seed_stat": seed_stat, "fail_all": fail_all,
                "sl": sl, "smean": smean, "limit_ratio_range": limit_ratio_range,
                "draw_text": draw_text, "lost_by": lost_by,
-               "corr_gamma_delay": corr_gamma_delay}
+               "corr_gamma_delay": corr_gamma_delay,
+               "jtext_best": jtext_best}
         return str(eval(m.group(1), env))
     text = re.sub(r"\{\{=\s*(.+?)\s*\}\}", expr, text)
 
@@ -572,9 +594,13 @@ def postprocess(path):
 def main(results, out):
     r = json.load(open(results))
     front = (HERE / "part0_front.md").read_text()
-    parts = [front] + [(HERE / f).read_text() for f in
-                       ("part1_intro_lit.md", "part2_methods.md",
-                        "part3_results.md", "part4_discussion.md")]
+    names = ["part1_intro_lit.md", "part2_methods.md", "part3_results.md"]
+    kaggle = HERE / "kaggle_results.json"
+    if kaggle.is_file():            # J-TEXT report from ml/train_jtext.py
+        r["jtext"] = json.load(open(kaggle))
+        names.append("part3b_jtext.md")
+    names.append("part4_discussion.md")
+    parts = [front] + [(HERE / f).read_text() for f in names]
     text = "\n\n".join(parts)
     text = expand(text, r)
     text = prose_fix(text)

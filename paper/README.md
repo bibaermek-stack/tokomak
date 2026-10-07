@@ -48,3 +48,10 @@ python -m tokamak.control.experiments --out r4.json --only growth
   регрессиялау) ғана жарайды.
 * Салыстыру кестесіндегі (1-кесте) басқа авторлардың сандары қайта өндірілген жоқ.
 * Нәтижелер **тек симуляцияға** қатысты.
+
+## Kaggle (J-TEXT) бөлімі — деректер тәуелді
+
+`part3b_jtext.md` (3.9-бөлім) мақалаға **тек** `paper/kaggle_results.json` болғанда қосылады.
+Бұл файл — `backend/ml/train_jtext.py` шығаратын `jtext_report.json`-ның көшірмесі
+(`backend/ml/models/jtext_report.json`). Оны қойып, `python build_paper.py results.json article_kk.docx`
+қайта іске қосыңыз; сандардың бәрі сол файлдан алынады. Файл жоқ болса, бөлім құрылмайды.
