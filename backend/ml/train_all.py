@@ -99,7 +99,7 @@ def run_pipeline(ppo_steps: int = 20_000, skip_rl: bool = False, seed: int = 42)
         print(f"[5/5] TRAINING DEEPMIND TCV RL CONTROLLER ({ppo_steps} PPO Steps)...")
         try:
             from tokamak.control.train import train as train_rl
-            out_policy = str(backend_dir / "tokamak" / "control" / "policy_ppo_dr_ac.npz")
+            out_policy = str(backend_dir / "tokamak" / "control" / "policy_pipeline.npz")
             rep5 = train_rl(
                 ppo_steps=ppo_steps,
                 bc_episodes=15,

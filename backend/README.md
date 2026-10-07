@@ -349,6 +349,9 @@ python -m tokamak.control.experiments --out results.json --policy PPO-DR-AC=toka
 `policy_ppo_dr_ac.npz` (`policy.npz` — соңғысының көшірмесі; API-да
 `policy`, `policy_ppo_dr`, `policy_ppo0`), оқу тарихы `training/`-те,
 әр нұсқаның 0–2 сидтері мақала бумасында (`paper/policies/`).
+`ml/train_all.py` өз нәтижесін `policy_pipeline.npz/json`-ға жазады (қысқа бір-сидті
+оқыту; 30 сидте QP 51 % қадамда араласады, рандомдалған плантта тірі қалу 73 % —
+тексерілген `policy_ppo_dr_ac.npz`-тен (93 %) нашар, сондықтан әдепкі емес).
 
 ### Нәтиже (KTM, 500 мс эпизод, 30 жұптасқан сид, 5000–5029)
 
