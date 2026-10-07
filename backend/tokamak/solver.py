@@ -296,6 +296,8 @@ class Simulator:
                                         self.h_mode)
         if cfg.transport_model == "cgm":
             return tr.chi_cgm(s, m.a, self.h_mode, m.R0)
+        if cfg.transport_model == "neural_surrogate":
+            return tr.chi_neural_surrogate(s, m.R0, m.a, self.q_prof, self.h_mode, m.B0)
         # scaling-anchored: stiff shape, amplitude set by the chosen scaling
         return self.chi0 * tr.chi_shape(g.rho, self.h_mode, s.Te, m.R0, m.a)
 

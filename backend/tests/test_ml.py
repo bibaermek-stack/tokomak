@@ -60,3 +60,39 @@ def test_equilibrium_neural_wrong_dimension():
     # Wrong number of features (e.g. 10 instead of 367)
     resp = client.post("/ml/equilibrium-neural", json={"features": [0.1] * 10})
     assert resp.status_code == 400
+
+
+def test_transport_surrogate_prediction():
+    payload = {
+        "rho": 0.4,
+        "r_lt": 7.5,
+        "r_ln": 2.2,
+        "q": 1.5,
+        "Te": 6.0,
+        "ne": 0.9,
+        "Ti_over_Te": 1.1,
+        "B0": 5.3,
+        "R0": 6.2,
+        "a": 2.0,
+        "h_mode": True,
+    }
+    resp = client.post("/ml/transport-surrogate", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "chi_thermal_diffusivity_m2_s" in data
+    assert 0.05 <= data["chi_thermal_diffusivity_m2_s"] <= 15.0
+    assert "DeepMind TORAX" in data["model"]
+
+
+def test_simulator_runs_neural_surrogate_transport():
+    from tokamak.solver import Simulator, SolverConfig
+    sim = Simulator(SolverConfig(machine="iter", transport_model="neural_surrogate",
+                                 equilibrium=False, disruption_enabled=False, n_rho=33))
+    for _ in range(10):
+        sim._scenario_actuators()
+        sim.step()
+    assert sim.t > 0.0
+    scalars = sim.scalars()
+    assert scalars["Te"] > 0.0
+
+

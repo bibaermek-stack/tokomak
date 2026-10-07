@@ -272,6 +272,40 @@ def ml_equilibrium_neural(req: EquilibriumNeuralRequest) -> dict:
     return {"prediction": preds, "caveat": CAVEAT_FEC}
 
 
+class TransportSurrogateRequest(BaseModel):
+    rho: float = Field(0.5, ge=0.0, le=1.0, description="Normalized radial coordinate r/a")
+    r_lt: float = Field(6.0, description="Normalized temperature gradient R/L_T")
+    r_ln: float = Field(2.0, description="Normalized density gradient R/L_n")
+    q: float = Field(1.8, gt=0.0, description="Safety factor q")
+    Te: float = Field(5.0, gt=0.0, description="Electron temperature [keV]")
+    ne: float = Field(0.8, gt=0.0, description="Electron density [10^20 m^-3]")
+    Ti_over_Te: float = Field(1.0, gt=0.0, description="Ion to electron temperature ratio")
+    B0: float = Field(5.3, gt=0.0, description="Toroidal field [T]")
+    R0: float = Field(6.2, gt=0.0, description="Major radius [m]")
+    a: float = Field(2.0, gt=0.0, description="Minor radius [m]")
+    h_mode: bool = Field(True, description="Whether plasma is in H-mode")
+
+
+@app.post("/ml/transport-surrogate")
+def ml_transport_surrogate(req: TransportSurrogateRequest) -> dict:
+    from ml.risk import CAVEAT_TORAX, predict_transport_surrogate
+    try:
+        chi = predict_transport_surrogate(
+            rho=req.rho, r_lt=req.r_lt, r_ln=req.r_ln, q=req.q,
+            Te=req.Te, ne=req.ne, Ti_over_Te=req.Ti_over_Te,
+            B0=req.B0, R0=req.R0, a=req.a, h_mode=req.h_mode
+        )
+    except (LookupError, ImportError) as exc:
+        raise HTTPException(503, str(exc)) from None
+    return {
+        "chi_thermal_diffusivity_m2_s": chi,
+        "inputs": req.model_dump(),
+        "model": "DeepMind TORAX Style Neural Transport Surrogate",
+        "caveat": CAVEAT_TORAX
+    }
+
+
+
 @app.get("/ai/imas")
 def ai_imas(q: str = "", limit: int = 12) -> dict:
     from imas.catalog import search as imas_search

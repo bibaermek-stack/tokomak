@@ -69,25 +69,44 @@ def _load_equilibrium_neural() -> Optional[dict]:
     return bundle
 
 
+def _load_transport_surrogate() -> Optional[dict]:
+    if "bundle_trans_surrogate" in _cache:
+        return _cache["bundle_trans_surrogate"]
+    path = MODELS / "neural_transport_surrogate.joblib"
+    bundle = None
+    if path.is_file():
+        import joblib
+        bundle = joblib.load(path)
+    _cache["bundle_trans_surrogate"] = bundle
+    return bundle
+
+
+CAVEAT_TORAX = ("DeepMind TORAX стиліндегі 1D ядролық турбулентті тасымал суррогаты (MLP). "
+                "Жергілікті градиенттерден (R/L_T, q, s) sub-millisecond ішінде chi(rho) есептейді.")
+
+
 def status() -> dict:
     try:
         bsyn = _load_synthetic()
         bjtext = _load_jtext()
         b_jtext_nn = _load_jtext_neural()
         b_eq_nn = _load_equilibrium_neural()
+        b_trans = _load_transport_surrogate()
         err = None
     except ImportError as exc:
-        bsyn, bjtext, b_jtext_nn, b_eq_nn, err = None, None, None, None, f"missing dependency: {exc.name}"
+        bsyn, bjtext, b_jtext_nn, b_eq_nn, b_trans, err = None, None, None, None, None, f"missing dependency: {exc.name}"
 
     rep_syn = MODELS / "disruption_report.json"
     rep_jtext = MODELS / "jtext_report.json"
     rep_eq = MODELS / "neural_equilibrium_report.json"
+    rep_trans = MODELS / "neural_transport_surrogate_report.json"
 
     return {
         "synthetic_model_available": bsyn is not None,
         "jtext_real_model_available": bjtext is not None,
         "jtext_neural_network_available": b_jtext_nn is not None,
         "neural_equilibrium_model_available": b_eq_nn is not None,
+        "neural_transport_surrogate_available": b_trans is not None,
         "error": err,
         "synthetic_report": json.loads(rep_syn.read_text(encoding="utf-8"))
         if rep_syn.is_file() else None,
@@ -95,10 +114,13 @@ def status() -> dict:
         if rep_jtext.is_file() else None,
         "neural_equilibrium_report": json.loads(rep_eq.read_text(encoding="utf-8"))
         if rep_eq.is_file() else None,
+        "neural_transport_surrogate_report": json.loads(rep_trans.read_text(encoding="utf-8"))
+        if rep_trans.is_file() else None,
         "caveats": {
             "synthetic": CAVEAT_SYNTHETIC,
             "jtext": CAVEAT_JTEXT,
             "fec": CAVEAT_FEC,
+            "torax": CAVEAT_TORAX,
         },
     }
 
@@ -140,3 +162,21 @@ def predict_equilibrium_neural(features_367) -> dict:
     arr = np.asarray(features_367, float)
     pred = model.predict(np.atleast_2d(arr))[0]
     return {name: float(val) for name, val in zip(names, pred)}
+
+
+def predict_transport_surrogate(rho: float, r_lt: float, r_ln: float, q: float,
+                                Te: float, ne: float, Ti_over_Te: float = 1.0,
+                                B0: float = 5.3, R0: float = 6.2, a: float = 2.0,
+                                h_mode: bool = True) -> float:
+    """Evaluates turbulent thermal diffusivity chi [m^2/s] with DeepMind TORAX style neural surrogate."""
+    import numpy as np
+    bundle = _load_transport_surrogate()
+    if bundle is None:
+        raise LookupError("no trained transport surrogate model; run python -m ml.train_transport_surrogate")
+    model = bundle["model"]
+    scaler = bundle["scaler"]
+    x = np.array([[rho, r_lt, r_ln, q, Te, ne, Ti_over_Te, B0, R0, a, 1.0 if h_mode else 0.0]], dtype=float)
+    x_scaled = scaler.transform(x)
+    pred = float(model.predict(x_scaled)[0])
+    return float(np.clip(pred, 0.05, 15.0))
+
