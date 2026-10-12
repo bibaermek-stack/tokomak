@@ -15,3 +15,6 @@ paper/article.built.md
 .venv/
 backend/data/
 backend/ml/models/
+
+presentation/node_modules/
+presentation/package-lock.json
