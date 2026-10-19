@@ -26,11 +26,12 @@ Conventions
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
-from scipy.sparse import lil_matrix, csr_matrix
+from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import factorized
 from scipy.interpolate import UnivariateSpline
 
@@ -138,27 +139,73 @@ def _build_operator(R: np.ndarray, Z: np.ndarray, mask: np.ndarray):
     """Sparse Delta* with Dirichlet rows outside the plasma.
 
     Delta* = d2/dR2 - (1/R) d/dR + d2/dZ2
+
+    Assembled from index arrays (the entries are exactly those of the element-by-element loop this replaces).
     """
     nZ, nR = mask.shape
     dR = R[1] - R[0]
     dZ = Z[1] - Z[0]
     N = nR * nZ
-    A = lil_matrix((N, N))
-    idx = lambda i, j: i * nR + j          # i over Z, j over R
+    ii, jj = np.meshgrid(np.arange(nZ), np.arange(nR), indexing="ij")
+    k = (ii * nR + jj)
+    frame = (ii == 0) | (ii == nZ - 1) | (jj == 0) | (jj == nR - 1)
+    dirichlet = ~mask | frame                  # psi = 0 outside / on the frame
+    inner = ~dirichlet
+    r = R[jj]
+    rows = [k[dirichlet]]
+    cols = [k[dirichlet]]
+    vals = [np.ones(int(dirichlet.sum()))]
+    ki = k[inner]
+    ri = r[inner]
+    for dk, v in ((-1, 1.0 / dR ** 2 + 1.0 / (2.0 * ri * dR)),           # (i, j-1)
+                  (+1, 1.0 / dR ** 2 - 1.0 / (2.0 * ri * dR)),           # (i, j+1)
+                  (-nR, np.full(ki.shape, 1.0 / dZ ** 2)),               # (i-1, j)
+                  (+nR, np.full(ki.shape, 1.0 / dZ ** 2)),               # (i+1, j)
+                  (0, np.full(ki.shape, -2.0 / dR ** 2 - 2.0 / dZ ** 2))):
+        rows.append(ki)
+        cols.append(ki + dk)
+        vals.append(v)
+    return coo_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))), shape=(N, N)).tocsr()
 
-    for i in range(nZ):
-        for j in range(nR):
-            k = idx(i, j)
-            if not mask[i, j] or i == 0 or i == nZ - 1 or j == 0 or j == nR - 1:
-                A[k, k] = 1.0              # psi = 0 outside / on the frame
-                continue
-            r = R[j]
-            A[k, idx(i, j - 1)] = 1.0 / dR ** 2 + 1.0 / (2.0 * r * dR)
-            A[k, idx(i, j + 1)] = 1.0 / dR ** 2 - 1.0 / (2.0 * r * dR)
-            A[k, idx(i - 1, j)] = 1.0 / dZ ** 2
-            A[k, idx(i + 1, j)] = 1.0 / dZ ** 2
-            A[k, k] = -2.0 / dR ** 2 - 2.0 / dZ ** 2
-    return csr_matrix(A)
+
+#: LU factorisations of Delta*, keyed on the grid and the plasma mask.  The mask only changes with the boundary
+#: shape, so the repeated solves of one discharge (every few plasma-seconds, several outer iterations each) share one.
+_LU_CACHE: dict = {}
+
+
+def _factorised_operator(R: np.ndarray, Z: np.ndarray, mask: np.ndarray):
+    key = (len(R), len(Z), float(R[0]), float(R[-1]), float(Z[0]), float(Z[-1]), hashlib.sha1(mask.tobytes()).hexdigest())
+    lu = _LU_CACHE.get(key)
+    if lu is None:
+        lu = factorized(_build_operator(R, Z, mask).tocsc())
+        if len(_LU_CACHE) >= 8:
+            _LU_CACHE.pop(next(iter(_LU_CACHE)))
+        _LU_CACHE[key] = lu
+    return lu
+
+
+_GRID_CACHE: dict = {}
+
+
+def _grid_and_mask(R0: float, a: float, kappa: float, delta: float, nR: int, nZ: int):
+    """Computational grid and plasma mask for a boundary shape (cached: a discharge reuses one shape)."""
+    key = (R0, a, kappa, delta, nR, nZ)
+    hit = _GRID_CACHE.get(key)
+    if hit is None:
+        Rb, Zb = boundary(R0, a, kappa, delta, 512)
+        pad = 1.12
+        R = np.linspace(R0 - pad * a, R0 + pad * a, nR)
+        Z = np.linspace(-pad * kappa * a, pad * kappa * a, nZ)
+        Rg, Zg = np.meshgrid(R, Z)
+        mask = _inside(Rg, Zg, Rb, Zb)
+        if mask.sum() < 50:
+            raise RuntimeError("plasma mask is empty -- check the grid extent")
+        for arr in (R, Z, Rg, Zg, mask):
+            arr.setflags(write=False)
+        if len(_GRID_CACHE) >= 16:
+            _GRID_CACHE.pop(next(iter(_GRID_CACHE)))
+        hit = _GRID_CACHE[key] = (R, Z, Rg, Zg, mask)
+    return hit
 
 
 def solve(R0: float, a: float, kappa: float, delta: float,
@@ -177,17 +224,9 @@ def solve(R0: float, a: float, kappa: float, delta: float,
     prof = profiles or GSProfiles()
     Ip_A = Ip * 1e6
 
-    Rb, Zb = boundary(R0, a, kappa, delta, 512)
-    pad = 1.12
-    R = np.linspace(R0 - pad * a, R0 + pad * a, nR)
-    Z = np.linspace(-pad * kappa * a, pad * kappa * a, nZ)
-    Rg, Zg = np.meshgrid(R, Z)
-    mask = _inside(Rg, Zg, Rb, Zb)
-    if mask.sum() < 50:
-        raise RuntimeError("plasma mask is empty -- check the grid extent")
+    R, Z, Rg, Zg, mask = _grid_and_mask(R0, a, kappa, delta, nR, nZ)
 
-    A = _build_operator(R, Z, mask)
-    lu = factorized(A.tocsc())
+    lu = _factorised_operator(R, Z, mask)
 
     dR, dZ = R[1] - R[0], Z[1] - Z[0]
     dA = dR * dZ

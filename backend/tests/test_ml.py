@@ -88,12 +88,12 @@ def test_transport_surrogate_prediction():
     data = resp.json()
     assert "chi_thermal_diffusivity_m2_s" in data
     assert 0.05 <= data["chi_thermal_diffusivity_m2_s"] <= 15.0
-    assert "DeepMind TORAX" in data["model"]
+    assert "SHRX" in data["model"]
 
 
-def test_simulator_runs_neural_surrogate_transport():
+def test_simulator_runs_shrx_transport():
     from tokamak.solver import Simulator, SolverConfig
-    sim = Simulator(SolverConfig(machine="iter", transport_model="neural_surrogate",
+    sim = Simulator(SolverConfig(machine="iter", transport_model="shrx",
                                  equilibrium=False, disruption_enabled=False, n_rho=33))
     for _ in range(10):
         sim._scenario_actuators()

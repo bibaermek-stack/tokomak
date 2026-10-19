@@ -39,9 +39,11 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional
 
 import numpy as np
-from scipy.linalg import solve_banded
+from scipy.linalg import lapack as _lapack
 
 from .constants import KEV_J, MU0, W_UNIT, MW, LN_LAMBDA
+
+_dgtsv = _lapack.dgtsv
 
 
 # ---------------------------------------------------------------------------
@@ -64,13 +66,20 @@ class Grid:
         # V(rho) = V_total rho^2 for a torus of constant cross-section shape
         self.Vp = 2.0 * self.V_total * self.rho
         self.dV = np.gradient(self.V_total * self.rho ** 2, self.rho) * self.dr
+        self._d = np.diff(self.rho)
+
+    def _trapz(self, y: np.ndarray) -> float:
+        """Trapezoid rule on the grid, in the same floating-point operations as numpy.trapezoid(y, rho) but with the
+        spacings computed once -- the solver calls it tens of thousands of times a run, and the result must not
+        change by even a bit (a stiff discharge amplifies round-off by many orders of magnitude)."""
+        return float((self._d * (y[1:] + y[:-1]) / 2.0).sum())
 
     def volume_average(self, f: np.ndarray) -> float:
-        return float(np.trapezoid(f * 2.0 * self.rho, self.rho))
+        return self._trapz(f * 2.0 * self.rho)
 
     def integrate(self, f: np.ndarray) -> float:
         """Volume integral of a density f(rho): int f dV."""
-        return float(np.trapezoid(f * self.Vp, self.rho))
+        return self._trapz(f * self.Vp)
 
 
 @dataclass
@@ -100,11 +109,27 @@ TRANSPORT_MODELS: Dict[str, TransportModel] = {
     "cgm": TransportModel(
         "cgm", "Критикалық градиент", "ITG/TEM табалдырықты тасымал",
         "R/L_T табалдырықтан асқанда тасымал күрт қосылады"),
-    "neural_surrogate": TransportModel(
-        "neural_surrogate", "DeepMind TORAX стиліндегі нейрожелілік суррогат",
-        "QLKNN / TORAX стиліндегі терең MLP суррогаты",
-        "жергілікті градиенттерден (R/L_T, q, s, beta) chi(rho) профилін 1 мс-тен аз уақытта болжайды"),
+    "shrx": TransportModel(
+        "shrx", "SHRX нейрожелілік тасымал моделі",
+        "SINTEZ-тің өз модельі; QLKNN (DeepMind TORAX) деректерінен оқытылған",
+        "жергілікті градиенттерден (R/L_T, q, ŝ, ν*) χ_e мен χ_i береді; тек NumPy, JAX керек емес"),
+    "shrx_ens": TransportModel(
+        "shrx_ens", "SHRX ансамблі (белгісіздікпен)",
+        "5 тәуелсіз SHRX желісінің орташасы; QLKNN деректерінен оқытылған",
+        "ағынның орташасы жалғыз желіден дәлірек; мүшелер арасындағы алшақтық қателік белгісі (shrx_uncertain)"),
+    "shrx_v0": TransportModel(
+        "shrx_v0", "SHRX v0 (бастапқы нұсқа)",
+        "TORAX стиліндегі MLP суррогаты; жобаның өз формулаларынан оқытылған",
+        "салыстыруды қайта жасау үшін сақталған; ITER-де Q ≈ 1,3 береді"),
 }
+
+#: Old names that still work.  ``neural_surrogate`` was the first name of SHRX.
+TRANSPORT_ALIASES: Dict[str, str] = {"neural_surrogate": "shrx"}
+
+
+def canonical_transport(key: str) -> str:
+    """Resolve a deprecated transport-model name to the current one."""
+    return TRANSPORT_ALIASES.get(key, key)
 
 
 # ---------------------------------------------------------------------------
@@ -299,13 +324,14 @@ def _load_surrogate_weights():
     return _SURROGATE_WEIGHTS
 
 
-def chi_neural_surrogate(state: PlasmaState, R0: float, a_minor: float,
-                         q_prof: np.ndarray, h_mode: bool,
-                         B0: float = 5.3) -> np.ndarray:
-    """DeepMind TORAX style neural surrogate evaluation of chi(rho).
-    
-    Evaluates local turbulent transport in < 0.1 ms using a trained deep neural
-    network surrogate (analogous to QLKNN in TORAX). Falls back to CGM if weights not found.
+def chi_shrx_v0(state: PlasmaState, R0: float, a_minor: float,
+                q_prof: np.ndarray, h_mode: bool,
+                B0: float = 5.3) -> np.ndarray:
+    """SHRX v0 (the original "TORAX-style" surrogate): chi_e(rho) from a small MLP.
+
+    Trained on this package's own Bohm/gyro-Bohm + critical-gradient formulas, not on
+    gyrokinetic data.  Kept so earlier comparisons can be reproduced; the current model
+    is :func:`tokamak.shrx.evaluate`.  Falls back to CGM if the weights are not found.
     """
     g = state.grid
     w = _load_surrogate_weights()
@@ -343,6 +369,10 @@ def chi_neural_surrogate(state: PlasmaState, R0: float, a_minor: float,
     
     chi = np.clip(out, 0.05, 15.0)
     return chi * _barrier(g.rho, h_mode)
+
+
+#: kept for callers that used the first name
+chi_neural_surrogate = chi_shrx_v0
 
 
 
@@ -404,15 +434,16 @@ def _diffuse(grid: Grid, y: np.ndarray, cap: np.ndarray, chi: np.ndarray,
     # eight it costs lets the axis run away and produces a spiked core.
     vol = np.maximum(Vp * dr, 1e-12)
     vol[0] = grid.V_total * (0.5 * dr) ** 2
-    for i in range(1, n - 1):
-        aw = D[i - 1] / vol[i]
-        ae = D[i] / vol[i]
-        pw = Pw[i - 1] / vol[i]
-        pe = Pw[i] / vol[i]
-        lower[i] = -dt * (aw - pw)
-        upper[i] = -dt * (ae + pe)
-        diag[i] = cap[i] + dt * (aw + ae + pw - pe) + dt * sink_rate[i]
-        rhs[i] = cap[i] * y[i] + dt * source[i]
+    # interior cells i = 1 .. n-2 (all at once: the west face of cell i is face i-1, the east face is face i)
+    v = vol[1:n - 1]
+    aw = D[:n - 2] / v
+    ae = D[1:n - 1] / v
+    pw = Pw[:n - 2] / v
+    pe = Pw[1:n - 1] / v
+    lower[1:n - 1] = -dt * (aw - pw)
+    upper[1:n - 1] = -dt * (ae + pe)
+    diag[1:n - 1] = cap[1:n - 1] + dt * (aw + ae + pw - pe) + dt * sink_rate[1:n - 1]
+    rhs[1:n - 1] = cap[1:n - 1] * y[1:n - 1] + dt * source[1:n - 1]
 
     # axis: zero-flux  ->  only the outward face contributes
     ae0 = D[0] / vol[0]
@@ -423,22 +454,21 @@ def _diffuse(grid: Grid, y: np.ndarray, cap: np.ndarray, chi: np.ndarray,
 
     # Dirichlet at the pedestal top (or at the separatrix if none is given)
     ie = n - 1 if i_edge is None else int(np.clip(i_edge, 2, n - 1))
-    for k in range(ie, n):
-        lower[k] = 0.0
-        upper[k] = 0.0
-        diag[k] = 1.0
-        rhs[k] = y_edge
+    lower[ie:] = 0.0
+    upper[ie:] = 0.0
+    diag[ie:] = 1.0
+    rhs[ie:] = y_edge
     if ie < n - 1:
         sep = y_edge if y_sep is None else y_sep
-        for k in range(ie, n):
-            f = (grid.rho[k] - grid.rho[ie]) / max(1.0 - grid.rho[ie], 1e-9)
-            rhs[k] = y_edge + (sep - y_edge) * f
+        f = (grid.rho[ie:] - grid.rho[ie]) / max(1.0 - grid.rho[ie], 1e-9)
+        rhs[ie:] = y_edge + (sep - y_edge) * f
 
-    ab = np.zeros((3, n))
-    ab[0, 1:] = upper[:-1]
-    ab[1, :] = diag
-    ab[2, :-1] = lower[1:]
-    return solve_banded((1, 1), ab, rhs)
+    # tridiagonal system: LAPACK's dgtsv, which is also what scipy.linalg.solve_banded runs for (1, 1) bands --
+    # called directly it skips the wrapper's validation (a third of the time of this function)
+    _, _, _, x, info = _dgtsv(lower[1:], diag, upper[:-1], rhs)
+    if info != 0:
+        raise np.linalg.LinAlgError(f"tridiagonal solve failed (info = {info})")
+    return x
 
 
 # ---------------------------------------------------------------------------

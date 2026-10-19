@@ -19,6 +19,7 @@ models produced it.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Dict, Any, List
 
@@ -115,6 +116,36 @@ def _slowing_integral(x: float) -> float:
     return float(np.trapezoid(1.0 / (1.0 + u ** 1.5), u))
 
 
+def _slowing_integral_arr(x: np.ndarray) -> np.ndarray:
+    """:func:`_slowing_integral` for an array of x at once (same quadrature, same switch at x = 4)."""
+    I_INF = 4.0 * np.pi / (3.0 * np.sqrt(3.0))
+    x = np.asarray(x, dtype=float)
+    out = np.zeros_like(x)
+    big = x > 4.0
+    out[big] = I_INF - 2.0 / np.sqrt(x[big])
+    mid = (x > 0.0) & ~big
+    if mid.any():
+        u = np.linspace(0.0, 1.0, 65)[None, :] * x[mid][:, None]          # (m, 65)
+        out[mid] = np.trapezoid(1.0 / (1.0 + u ** 1.5), u, axis=1)
+    return out
+
+
+def _slowing_G_arr(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=float)
+    pos = x > 0
+    out = np.zeros_like(x)
+    out[pos] = (x[pos] - _slowing_integral_arr(x)[pos]) / (2.0 * x[pos])
+    return out
+
+
+def _ion_fraction_arr(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=float)
+    pos = x > 0
+    out = np.ones_like(x)
+    out[pos] = _slowing_integral_arr(x)[pos] / x[pos]
+    return out
+
+
 def _slowing_G(x: float) -> float:
     """Stored energy per unit birth power, in units of tau_s."""
     return 0.0 if x <= 0 else (x - _slowing_integral(x)) / (2.0 * x)
@@ -163,6 +194,13 @@ class Simulator:
         self._eq_seen = False
         self._chi_e = None
         self._chi_i = None
+        self._chi_i_model = None        # set by transport models that supply their own chi_i (SHRX)
+        self.shrx_ood = 0.0
+        self.shrx_ood_core = 0.0
+        self.shrx_uncertain = 0.0        # share of radial points flagged by the ensemble spread (transport_model = shrx_ens)
+        self.shrx_validity = 0           # 0 ok / 1 marginal / 2 outside the regime QLKNN covers (machine_validity)
+        self._shrx_checked = False
+        self.tglf_log: Optional[list] = None   # set to [] to record (inputs, fluxes) of every tglfnn_ref call (data generation)
         self.flux = cur.FluxBudget(
             available=cur.cs_flux_capacity(self.m.R0, self.m.a, self.m.Ip) * 1.35)
         self.psi_prof = np.zeros(g.n)
@@ -267,8 +305,8 @@ class Simulator:
         if w_tot > 1e-9:
             ts = tau_s(4.0, 2.0, s.Te, s.ne)
             xs = E_ALPHA_KEV / e_crit(4.0, s.Te)
-            Gs = np.array([_slowing_G(v) for v in xs])
-            Fi = np.array([_ion_fraction(v) for v in xs])
+            Gs = _slowing_G_arr(xs)
+            Fi = _ion_fraction_arr(xs)
             W_a = float(np.trapezoid(src * ts * Gs, g.rho))
             f_alpha_ion = float(np.trapezoid(src * Fi, g.rho)) / w_tot
         else:
@@ -296,10 +334,65 @@ class Simulator:
                                         self.h_mode)
         if cfg.transport_model == "cgm":
             return tr.chi_cgm(s, m.a, self.h_mode, m.R0)
-        if cfg.transport_model == "neural_surrogate":
-            return tr.chi_neural_surrogate(s, m.R0, m.a, self.q_prof, self.h_mode, m.B0)
+        key = tr.canonical_transport(cfg.transport_model)
+        self._chi_i_model = None
+        if key in ("shrx", "qlknn_ref", "shrx_ens"):
+            return self._chi_shrx(reference=(key == "qlknn_ref"), ensemble=(key == "shrx_ens"))
+        if key in ("tglfnn_ref", "shrx_st"):
+            return self._chi_tglf(student=(key == "shrx_st"))
+        if key == "shrx_v0":
+            return tr.chi_shrx_v0(s, m.R0, m.a, self.q_prof, self.h_mode, m.B0)
         # scaling-anchored: stiff shape, amplitude set by the chosen scaling
         return self.chi0 * tr.chi_shape(g.rho, self.h_mode, s.Te, m.R0, m.a)
+
+    def _chi_shrx(self, reference: bool = False, ensemble: bool = False) -> np.ndarray:
+        """SHRX: chi_e AND chi_i from the network (every other model leaves chi_i to the default shape).
+
+        ``ensemble=True`` uses the ensemble-mean flux and records the share of in-range points whose members disagree
+        (``shrx_uncertain``): a run whose value stays near zero stands on what the network knows.
+
+        ``reference=True`` swaps in the real QLKNN (needs JAX; evaluation only, see tokamak.shrx.reference).
+        """
+        if reference:
+            from .shrx import reference as shrx
+        else:
+            from . import shrx
+        g, s, m = self.grid, self.state, self.m
+        if not reference and not self._shrx_checked:
+            self._shrx_checked = True
+            v = shrx.machine_validity(m)
+            self.shrx_validity = {"ok": 0, "marginal": 1, "outside": 2}[v["status"]]
+            if v["status"] != "ok":
+                logging.getLogger(__name__).warning("SHRX on %s: %s -- %s", m.label, v["status"], "; ".join(v["reasons"]))
+        if ensemble:
+            out = shrx.evaluate(g.rho, s.Te, s.Ti, s.ne, self.q_prof, m, self.c["z_eff"], self.c["f_dt"], uncertainty=True)
+            self.shrx_uncertain = out["uncertain_fraction"]
+        else:
+            out = shrx.evaluate(g.rho, s.Te, s.Ti, s.ne, self.q_prof, m, self.c["z_eff"], self.c["f_dt"])
+        bar = tr._barrier(g.rho, self.h_mode)
+        self._chi_i_model = out["chi_i"] * bar
+        self.shrx_ood = out["ood_fraction"]
+        self.shrx_ood_core = out["ood_core"]
+        return out["chi_e"] * bar
+
+    def _chi_tglf(self, student: bool = False) -> np.ndarray:
+        """TGLFNN-UKAEA (STEP) in the loop: chi_e and chi_i from the second teacher (evaluation only; weights not shipped).
+
+        See :mod:`tokamak.shrx.tglf`.  Needs ``TGLFNN_STEP_PKL``; the network is five times 6 x 512 per flux, so a step costs
+        tens of milliseconds -- this is a reference, not a production transport model.
+        """
+        from .shrx import tglf
+        g, s, m = self.grid, self.state, self.m
+        out = tglf.evaluate(g.rho, s.Te, s.Ti, s.ne, self.q_prof, m, self.c["z_eff"], self.c["f_dt"],
+                            li=self.li, beta_p=getattr(self, "beta_p", 0.5), student=student)
+        if self.tglf_log is not None and not student:
+            self.tglf_log.append(np.column_stack([out["features"], out["efe_gb"], out["efi_gb"], out["gamma_e_gb"],
+                                                  out["efe_gb_std"], out["efi_gb_std"]]).astype(np.float32))
+        bar = tr._barrier(g.rho, self.h_mode)
+        self._chi_i_model = out["chi_i"] * bar
+        self.shrx_ood = out["ood_fraction"]
+        self.shrx_ood_core = out["ood_core"]
+        return out["chi_e"] * bar
 
     def _update_pedestal(self, dt: float) -> None:
         """Set the pedestal-top temperature for this step.
@@ -419,8 +512,8 @@ class Simulator:
         # that limit cycle into the steady state it is oscillating about.
         w = min(dt / max(cfg.chi_relax, 1e-3), 1.0)
         chi_new = self._chi()
-        chi_i_new = 1.8 * self.chi0 * tr.chi_shape(g.rho, self.h_mode, s.Ti,
-                                                   m.R0, m.a)
+        chi_i_new = (self._chi_i_model if self._chi_i_model is not None
+                     else 1.8 * self.chi0 * tr.chi_shape(g.rho, self.h_mode, s.Ti, m.R0, m.a))
         if getattr(self, "_chi_e", None) is None:
             self._chi_e, self._chi_i = chi_new, chi_i_new
         self._chi_e = self._chi_e + (chi_new - self._chi_e) * w
@@ -737,6 +830,10 @@ class Simulator:
             "ped_width_psi": self.ped.width_psi if self.ped else 0.0,
             "ped_p": self.ped.p_ped if self.ped else 0.0,
             "V": m.V, "S": m.S, "kappaA": m.kappa_a,
+            "shrx_ood": self.shrx_ood,
+            "shrx_ood_core": self.shrx_ood_core,
+            "shrx_validity": self.shrx_validity,
+            "shrx_uncertain": self.shrx_uncertain,
         }
         if self.stab is not None:
             st = self.stab

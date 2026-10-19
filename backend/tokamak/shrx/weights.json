@@ -1,0 +1,48 @@
+{
+ "name": "final_s0",
+ "width": 96,
+ "depth": 4,
+ "epochs": 100,
+ "seed": 0,
+ "n_parameters": 29283,
+ "holdout_machines": [
+  "nstx",
+  "demo"
+ ],
+ "n_train": 2131259,
+ "metrics": {
+  "val_all": {
+   "r2_qi": 0.9846192598342896,
+   "r2_qe": 0.9880082607269287,
+   "r2_pfe": 0.9786356687545776,
+   "chi_i_median_rel_err_active": 0.07838914726123299,
+   "chi_i_within20pct_active": 0.7736212600428982,
+   "chi_e_median_rel_err_active": 0.08320551955149723,
+   "chi_e_within20pct_active": 0.7956095127224347
+  },
+  "test_heldout_machines": {
+   "r2_qi": 0.9805307984352112,
+   "r2_qe": 0.9827430248260498,
+   "r2_pfe": 0.9639233946800232,
+   "chi_i_median_rel_err_active": 0.10567826362860272,
+   "chi_i_within20pct_active": 0.7061903789492109,
+   "chi_e_median_rel_err_active": 0.09977438892666823,
+   "chi_e_within20pct_active": 0.7415484980415171
+  },
+  "test_real_only": {
+   "r2_qi": 0.9870007038116455,
+   "r2_qe": 0.9882665276527405,
+   "r2_pfe": 0.9807514548301697,
+   "chi_i_median_rel_err_active": 0.09422241872744984,
+   "chi_i_within20pct_active": 0.7036870214271926,
+   "chi_e_median_rel_err_active": 0.0869686531700952,
+   "chi_e_within20pct_active": 0.753571203826065
+  }
+ },
+ "latency_us": {
+  "N26_us_median": 63.40347000029093,
+  "N65_us_median": 105.22175000005518
+ },
+ "teacher": "QLKNN qlknn_7_11_v1 (fusion_surrogates, Apache-2.0) via TORAX",
+ "notes": "metrics: r2_* are R^2 of the gyro-Bohm fluxes; *_median_rel_err_active is the median relative error of chi where QLKNN's chi is above twice the floor (turbulence 'on'). Held-out machines (nstx, demo) never appear in training."
+}

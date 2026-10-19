@@ -80,15 +80,16 @@ def attach_geometry(m: Machine) -> Machine:
     return m
 
 
-def trapped_fraction(eps: float) -> float:
-    """Trapped-particle fraction on a surface of inverse aspect ratio eps.
+def trapped_fraction(eps):
+    """Trapped-particle fraction on a surface of inverse aspect ratio eps (a number or an array).
 
     The standard large-aspect-ratio result f_t = 1.46 sqrt(eps) is only good
     to eps ~ 0.2; this is the Lin-Liu / Miller form that stays bounded and is
     what the Sauter bootstrap coefficients expect.
     """
-    e = float(np.clip(eps, 0.0, 0.95))
-    return float(1.0 - (1.0 - e) ** 2 / (np.sqrt(1.0 - e * e) * (1.0 + 1.46 * np.sqrt(e))))
+    e = np.clip(np.asarray(eps, dtype=float), 0.0, 0.95)
+    ft = 1.0 - (1.0 - e) ** 2 / (np.sqrt(1.0 - e * e) * (1.0 + 1.46 * np.sqrt(e)))
+    return float(ft) if ft.ndim == 0 else ft
 
 
 def b_poloidal(Ip_MA: float, L_pol: float) -> float:

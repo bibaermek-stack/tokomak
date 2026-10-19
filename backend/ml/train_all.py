@@ -2,7 +2,7 @@
 
 Executes end-to-end training across all model tiers according to Google DeepMind
 architectural principles:
-  1. Google DeepMind TORAX Style Neural Transport Surrogate (train_transport_surrogate.py)
+  1. SHRX v0 neural transport model (train_transport_surrogate.py; SHRX v1 is trained by ml/shrx/)
   2. DIII-D Experimental Neural Equilibrium Inversion (train_equilibrium_neural.py)
   3. J-TEXT Experimental Neural Disruption Predictor (train_jtext.py)
   4. Synthetic Disruption Risk Classifier (train_disruption.py)
@@ -31,8 +31,8 @@ def run_pipeline(ppo_steps: int = 20_000, skip_rl: bool = False, seed: int = 42)
     print("=" * 80)
     print(f"Random Seed: {seed} | PPO Steps: {ppo_steps} | RL Enabled: {not skip_rl}\n")
 
-    # 1. TORAX Neural Transport Surrogate
-    print("[1/5] TRAINING DEEPMIND TORAX NEURAL TRANSPORT SURROGATE...")
+    # 1. SHRX v0 neural transport model
+    print("[1/5] TRAINING SHRX v0 NEURAL TRANSPORT MODEL...")
     try:
         from ml.train_transport_surrogate import train_surrogate
         rep1 = train_surrogate(n_samples=65_000, seed=seed)
@@ -42,9 +42,9 @@ def run_pipeline(ppo_steps: int = 20_000, skip_rl: bool = False, seed: int = 42)
             "test_mae": rep1.get("test_mae_m2_s"),
             "latency_ms": rep1.get("inference_latency_ms")
         }
-        print(">>> TORAX Surrogate: SUCCESS (Test R2: {:.4f})\n".format(rep1.get("test_r2", 0.0)))
+        print(">>> SHRX v0: SUCCESS (Test R2: {:.4f})\n".format(rep1.get("test_r2", 0.0)))
     except Exception as e:
-        print(f">>> TORAX Surrogate FAILED: {e}\n")
+        print(f">>> SHRX v0 FAILED: {e}\n")
         results["torax_surrogate"] = {"status": "failed", "error": str(e)}
 
     # 2. DIII-D Neural Equilibrium Inversion

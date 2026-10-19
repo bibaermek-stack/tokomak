@@ -286,9 +286,10 @@ class TransportSurrogateRequest(BaseModel):
     h_mode: bool = Field(True, description="Whether plasma is in H-mode")
 
 
-@app.post("/ml/transport-surrogate")
+@app.post("/ml/shrx-v0")
+@app.post("/ml/transport-surrogate")      # first name of SHRX v0, kept for compatibility
 def ml_transport_surrogate(req: TransportSurrogateRequest) -> dict:
-    from ml.risk import CAVEAT_TORAX, predict_transport_surrogate
+    from ml.risk import CAVEAT_SHRX, predict_transport_surrogate
     try:
         chi = predict_transport_surrogate(
             rho=req.rho, r_lt=req.r_lt, r_ln=req.r_ln, q=req.q,
@@ -300,10 +301,50 @@ def ml_transport_surrogate(req: TransportSurrogateRequest) -> dict:
     return {
         "chi_thermal_diffusivity_m2_s": chi,
         "inputs": req.model_dump(),
-        "model": "DeepMind TORAX Style Neural Transport Surrogate",
-        "caveat": CAVEAT_TORAX
+        "model": "SHRX v0 neural transport model",
+        "caveat": CAVEAT_SHRX
     }
 
+
+
+class ShrxRequest(BaseModel):
+    """SHRX works in QLKNN's own dimensionless variables, so one request fits any machine."""
+    Ati: float = Field(7.0, ge=0.0, description="R/L_Ti")
+    Ate: float = Field(7.0, ge=0.0, description="R/L_Te")
+    Ane: float = Field(2.0, description="R/L_ne")
+    Ani: Optional[float] = Field(None, description="R/L_ni (default: same as R/L_ne)")
+    q: float = Field(1.5, gt=0.0, description="safety factor")
+    smag: float = Field(1.0, description="magnetic shear (r/q) dq/dr")
+    x: float = Field(0.5, gt=0.0, description="QLKNN's normalised radius: (r/a)(a/R)/(1/3)")
+    Ti_Te: float = Field(1.0, gt=0.0, description="T_i/T_e")
+    LogNuStar: float = Field(-1.5, description="log10 of the normalised electron collisionality")
+    normni: float = Field(0.9, gt=0.0, le=1.0, description="n_i/n_e")
+    Ti_keV: float = Field(8.0, gt=0.0, description="ion temperature, sets the gyro-Bohm unit [keV]")
+    B0: float = Field(5.3, gt=0.0, description="toroidal field [T]")
+    R0: float = Field(6.2, gt=0.0, description="major radius [m]")
+    a: float = Field(2.0, gt=0.0, description="minor radius [m]")
+    a_mass: float = Field(2.5, gt=0.0, description="mean ion mass [amu]")
+
+
+@app.post("/ml/shrx")
+def ml_shrx(req: ShrxRequest) -> dict:
+    """Turbulent chi_e, chi_i [m^2/s] from SHRX for one local set of QLKNN variables."""
+    import numpy as np
+    from tokamak import shrx
+    from tokamak.shrx import bridge
+    if not shrx.available():
+        raise HTTPException(503, "SHRX weights not found (backend/tokamak/shrx/weights.npz)")
+    net = shrx.load()
+    X = np.array([[req.Ati, req.Ate, req.Ane, req.Ane if req.Ani is None else req.Ani, req.q, req.smag,
+                   req.x, req.Ti_Te, req.LogNuStar, req.normni]], dtype=np.float32)
+    flux = net.predict(X)
+    aux = {"Ati": np.maximum(X[:, 0], bridge.EPS), "Ate": np.maximum(X[:, 1], bridge.EPS),
+           "Ti": np.array([req.Ti_keV]), "B0": req.B0, "R0": req.R0, "a": req.a}
+    chi_i, chi_e = bridge.to_si(flux[:, 0], flux[:, 1], aux, a_mass=req.a_mass)
+    return {"chi_e_m2_s": float(chi_e[0]), "chi_i_m2_s": float(chi_i[0]),
+            "gyro_bohm_flux": {"q_i": float(flux[0, 0]), "q_e": float(flux[0, 1]), "gamma_e": float(flux[0, 2])},
+            "out_of_range": bool(net.out_of_range(X)[0]), "inputs": req.model_dump(),
+            "model": "SHRX", "caveat": shrx.CAVEAT}
 
 
 @app.get("/ai/imas")
@@ -412,6 +453,7 @@ def simulate(req: SimulateRequest) -> dict:
                                  f"{req.confinement_model!r}")
     if req.lh_model not in LH_THRESHOLD:
         raise HTTPException(400, f"unknown L-H model {req.lh_model!r}")
+    req.transport_model = tr.canonical_transport(req.transport_model)
     if req.transport_model not in tr.TRANSPORT_MODELS:
         raise HTTPException(400, f"unknown transport model "
                                  f"{req.transport_model!r}")
