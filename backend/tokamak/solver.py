@@ -197,6 +197,7 @@ class Simulator:
         self._chi_i_model = None        # set by transport models that supply their own chi_i (SHRX)
         self.shrx_ood = 0.0
         self.shrx_ood_core = 0.0
+        self.shrx_uncertain = 0.0        # share of radial points flagged by the ensemble spread (transport_model = shrx_ens)
         self.shrx_validity = 0           # 0 ok / 1 marginal / 2 outside the regime QLKNN covers (machine_validity)
         self._shrx_checked = False
         self.flux = cur.FluxBudget(
@@ -334,15 +335,18 @@ class Simulator:
             return tr.chi_cgm(s, m.a, self.h_mode, m.R0)
         key = tr.canonical_transport(cfg.transport_model)
         self._chi_i_model = None
-        if key in ("shrx", "qlknn_ref"):
-            return self._chi_shrx(reference=(key == "qlknn_ref"))
+        if key in ("shrx", "qlknn_ref", "shrx_ens"):
+            return self._chi_shrx(reference=(key == "qlknn_ref"), ensemble=(key == "shrx_ens"))
         if key == "shrx_v0":
             return tr.chi_shrx_v0(s, m.R0, m.a, self.q_prof, self.h_mode, m.B0)
         # scaling-anchored: stiff shape, amplitude set by the chosen scaling
         return self.chi0 * tr.chi_shape(g.rho, self.h_mode, s.Te, m.R0, m.a)
 
-    def _chi_shrx(self, reference: bool = False) -> np.ndarray:
+    def _chi_shrx(self, reference: bool = False, ensemble: bool = False) -> np.ndarray:
         """SHRX: chi_e AND chi_i from the network (every other model leaves chi_i to the default shape).
+
+        ``ensemble=True`` uses the ensemble-mean flux and records the share of in-range points whose members disagree
+        (``shrx_uncertain``): a run whose value stays near zero stands on what the network knows.
 
         ``reference=True`` swaps in the real QLKNN (needs JAX; evaluation only, see tokamak.shrx.reference).
         """
@@ -357,7 +361,11 @@ class Simulator:
             self.shrx_validity = {"ok": 0, "marginal": 1, "outside": 2}[v["status"]]
             if v["status"] != "ok":
                 logging.getLogger(__name__).warning("SHRX on %s: %s -- %s", m.label, v["status"], "; ".join(v["reasons"]))
-        out = shrx.evaluate(g.rho, s.Te, s.Ti, s.ne, self.q_prof, m, self.c["z_eff"], self.c["f_dt"])
+        if ensemble:
+            out = shrx.evaluate(g.rho, s.Te, s.Ti, s.ne, self.q_prof, m, self.c["z_eff"], self.c["f_dt"], uncertainty=True)
+            self.shrx_uncertain = out["uncertain_fraction"]
+        else:
+            out = shrx.evaluate(g.rho, s.Te, s.Ti, s.ne, self.q_prof, m, self.c["z_eff"], self.c["f_dt"])
         bar = tr._barrier(g.rho, self.h_mode)
         self._chi_i_model = out["chi_i"] * bar
         self.shrx_ood = out["ood_fraction"]
@@ -803,6 +811,7 @@ class Simulator:
             "shrx_ood": self.shrx_ood,
             "shrx_ood_core": self.shrx_ood_core,
             "shrx_validity": self.shrx_validity,
+            "shrx_uncertain": self.shrx_uncertain,
         }
         if self.stab is not None:
             st = self.stab

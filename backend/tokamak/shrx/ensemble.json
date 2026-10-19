@@ -1,0 +1,49 @@
+{
+ "members": [
+  "t_s0",
+  "t_s1",
+  "t_s2",
+  "t_s3",
+  "t_s4"
+ ],
+ "n_members": 5,
+ "member_info": [
+  {
+   "name": "t_s0",
+   "seed": 0,
+   "epochs": 100,
+   "n_parameters": 29283,
+   "n_train": 2847590
+  },
+  {
+   "name": "t_s1",
+   "seed": 1,
+   "epochs": 70,
+   "n_parameters": 29283,
+   "n_train": 2419773
+  },
+  {
+   "name": "t_s2",
+   "seed": 2,
+   "epochs": 70,
+   "n_parameters": 29283,
+   "n_train": 2420225
+  },
+  {
+   "name": "t_s3",
+   "seed": 3,
+   "epochs": 70,
+   "n_parameters": 29283,
+   "n_train": 2421774
+  },
+  {
+   "name": "t_s4",
+   "seed": 4,
+   "epochs": 70,
+   "n_parameters": 29283,
+   "n_train": 2420192
+  }
+ ],
+ "unc_threshold": 0.2,
+ "unc_threshold_note": "mean of the two cross-machine calibrations (nstx->demo 0.21, demo->nstx 0.19); see docs/shrx"
+}
