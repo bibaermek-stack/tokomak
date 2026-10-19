@@ -1,0 +1,6 @@
+{
+  "name": "paper-shrx",
+  "private": true,
+  "description": "Build tooling for the SHRX article (KaTeX server-side rendering)",
+  "dependencies": { "katex": "0.16.11" }
+}
