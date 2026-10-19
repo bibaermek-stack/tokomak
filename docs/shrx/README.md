@@ -1,6 +1,7 @@
 # SHRX — SINTEZ нейрожелілік тасымал моделі
 
-**Есеп:** [`SHRX_vs_TORAX_report.pdf`](SHRX_vs_TORAX_report.pdf) (7 бет, қазақша) · **жоспар:** [`PLAN.md`](PLAN.md)
+**Есеп:** [`SHRX_vs_TORAX_report.pdf`](SHRX_vs_TORAX_report.pdf) (7 бет, қазақша) · **жоспар:** [`PLAN.md`](PLAN.md) ·
+**ғылыми мақала** (қазақша, ақ-қара, KaTeX; TORAX-пен салыстыру, ансамбль, DB5, сфералық токамактар): [`paper_shrx/`](../../paper_shrx/README.md)
 
 SHRX — бұрынғы «TORAX стиліндегі суррогаттың» (қазір `shrx_v0`) орнына келген модель. Ол SINTEZ-тің тасымал
 теңдеуіне χ_e және χ_i береді және **нағыз QLKNN-нен** (DeepMind TORAX-тың нейрожелісі) дистилляцияланған:
