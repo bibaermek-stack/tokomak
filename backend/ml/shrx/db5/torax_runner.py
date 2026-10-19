@@ -1,6 +1,8 @@
 """The same database records in TORAX (QLKNN).   TORAX environment.
 
-    python torax_runner.py <records.csv> <sintez_out.json> <out.json> [--limit N]
+    python torax_runner.py <records.csv> <sintez_out.json> <out.json> [--limit N] [--shard i/n]
+
+``--shard i/n`` runs every n-th record starting at i, so n processes can share one CPU box (JAX uses one core each here).
 
 Equal footing with the SINTEZ runs: same machine parameters, same density profile (SINTEZ's, prescribed), same pedestal
 top (SINTEZ's EPED-like prediction -- TORAX has no predictive pedestal), same electron/ion split of the heating, same Z_eff,
@@ -19,7 +21,7 @@ import torax
 csv, sintez_path, out_path = sys.argv[1:4]
 limit = int(sys.argv[sys.argv.index("--limit") + 1]) if "--limit" in sys.argv else None
 df = pd.read_csv(csv)
-sintez = {(r["TOK"], r["SHOT"]): r for r in json.load(open(sintez_path))}
+sintez = {(r["TOK"], r["SHOT"], round(r["TIME"], 4)): r for r in json.load(open(sintez_path))}
 T_FINAL = float(sys.argv[sys.argv.index("--t-final") + 1]) if "--t-final" in sys.argv else 6.0
 
 
@@ -78,11 +80,14 @@ def config(r, s):
 
 results = []
 rows = list(df.itertuples(index=False))
+if "--shard" in sys.argv:
+    i, n = (int(v) for v in sys.argv[sys.argv.index("--shard") + 1].split("/"))
+    rows = rows[i::n]
 if limit:
     rows = rows[:limit]
 for r in rows:
-    key = (r.TOK, int(r.SHOT))
-    out = {"TOK": r.TOK, "SHOT": int(r.SHOT), "ok": False}
+    key = (r.TOK, int(r.SHOT), round(float(r.TIME), 4))
+    out = {"TOK": r.TOK, "SHOT": int(r.SHOT), "TIME": float(r.TIME), "ok": False}
     s = sintez.get(key)
     if not s or not s.get("ok"):
         out["error"] = "no SINTEZ reference run"

@@ -19,6 +19,7 @@ models produced it.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Dict, Any, List
 
@@ -195,6 +196,9 @@ class Simulator:
         self._chi_i = None
         self._chi_i_model = None        # set by transport models that supply their own chi_i (SHRX)
         self.shrx_ood = 0.0
+        self.shrx_ood_core = 0.0
+        self.shrx_validity = 0           # 0 ok / 1 marginal / 2 outside the regime QLKNN covers (machine_validity)
+        self._shrx_checked = False
         self.flux = cur.FluxBudget(
             available=cur.cs_flux_capacity(self.m.R0, self.m.a, self.m.Ip) * 1.35)
         self.psi_prof = np.zeros(g.n)
@@ -347,10 +351,17 @@ class Simulator:
         else:
             from . import shrx
         g, s, m = self.grid, self.state, self.m
+        if not reference and not self._shrx_checked:
+            self._shrx_checked = True
+            v = shrx.machine_validity(m)
+            self.shrx_validity = {"ok": 0, "marginal": 1, "outside": 2}[v["status"]]
+            if v["status"] != "ok":
+                logging.getLogger(__name__).warning("SHRX on %s: %s -- %s", m.label, v["status"], "; ".join(v["reasons"]))
         out = shrx.evaluate(g.rho, s.Te, s.Ti, s.ne, self.q_prof, m, self.c["z_eff"], self.c["f_dt"])
         bar = tr._barrier(g.rho, self.h_mode)
         self._chi_i_model = out["chi_i"] * bar
         self.shrx_ood = out["ood_fraction"]
+        self.shrx_ood_core = out["ood_core"]
         return out["chi_e"] * bar
 
     def _update_pedestal(self, dt: float) -> None:
@@ -790,6 +801,8 @@ class Simulator:
             "ped_p": self.ped.p_ped if self.ped else 0.0,
             "V": m.V, "S": m.S, "kappaA": m.kappa_a,
             "shrx_ood": self.shrx_ood,
+            "shrx_ood_core": self.shrx_ood_core,
+            "shrx_validity": self.shrx_validity,
         }
         if self.stab is not None:
             st = self.stab

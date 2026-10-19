@@ -52,5 +52,7 @@ def evaluate(rho, Te, Ti, ne20, q, machine, zeff: float, normni: float = 0.9) ->
     flux = fluxes(Xc)
     chi_i, chi_e = bridge.to_si(flux[:, 0], flux[:, 1], aux, a_mass=machine.a_mass)
     ood = np.any((X < lo) | (X > hi), axis=1)
+    j = bridge.FEATURES.index("x")
+    inside = (X[:, j] >= lo[j]) & (X[:, j] <= hi[j])
     return {"chi_e": chi_e, "chi_i": chi_i, "gamma_e_gb": flux[:, 2], "ood_fraction": float(ood.mean()),
-            "ood": ood, "features": X}
+            "ood_core": float(ood[inside].mean()) if inside.any() else 1.0, "ood": ood, "features": X}

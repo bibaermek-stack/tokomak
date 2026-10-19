@@ -30,15 +30,18 @@ def parse(flag):
 
 sintez, torax = parse("--runs"), parse("--torax")
 df = pd.read_csv(csv)
-df["key"] = list(zip(df.TOK, df.SHOT))
-exp = df.set_index("key")
+df["key"] = list(zip(df.TOK, df.SHOT, df.TIME.round(4)))
+assert df.key.is_unique, "records must be unique per (TOK, SHOT, TIME)"
+WTH = dict(zip(df.key, df.WTH))
+PLTH = dict(zip(df.key, df.PLTH))
+KEYS = list(df.key)
 
 
 def table(runs, field):
     rows = {}
     for r in runs:
         if r.get("ok"):
-            rows[(r["TOK"], r["SHOT"])] = r[field]
+            rows[(r["TOK"], r["SHOT"], round(r["TIME"], 4))] = r[field]
     return rows
 
 
@@ -66,29 +69,29 @@ for name, runs in torax.items():
     t = table(runs, "Wth_MJ")
     preds[f"TORAX({name})"] = {k: v * 1e6 for k, v in t.items()}
 for name, p in preds.items():
-    ratio = [p[k] / exp.loc[k, "WTH"] for k in exp.index if k in p]
+    ratio = [p[k] / WTH[k] for k in KEYS if k in p]
     res["stats"][name] = stats(ratio)
 
 # per record table and the agreement between codes
-for k in exp.index:
-    rec = {"WTH_MJ": float(exp.loc[k, "WTH"] / 1e6), "PLTH_MW": float(exp.loc[k, "PLTH"] / 1e6)}
+for k in KEYS:
+    rec = {"WTH_MJ": float(WTH[k] / 1e6), "PLTH_MW": float(PLTH[k] / 1e6)}
     for name, p in preds.items():
         if k in p:
             rec[name] = p[k] / 1e6
-    res["records"][f"{k[0]}-{k[1]}"] = rec
+    res["records"][f"{k[0]}-{k[1]}@{k[2]}"] = rec
 names = list(preds)
 if len(names) >= 2:
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
-            common = [k for k in exp.index if k in preds[names[i]] and k in preds[names[j]]]
+            common = [k for k in KEYS if k in preds[names[i]] and k in preds[names[j]]]
             r = np.array([preds[names[i]][k] / preds[names[j]][k] for k in common])
             if len(r):
                 res["stats"][f"{names[i]} / {names[j]}"] = {"n": len(r), "median_ratio": float(np.median(r)),
                                                            "rms_ln_about_mean": float(np.log(r).std())}
-for tok, g in exp.groupby(exp.index.map(lambda k: k[0])):
+for tok, g in df.groupby("TOK"):
     res["by_machine"][tok] = {"n": int(len(g)), "median_H98_measured": float(np.nanmedian(g.HIPB98Y2))}
     for name, p in preds.items():
-        rr = [p[k] / exp.loc[k, "WTH"] for k in g.index if k in p]
+        rr = [p[k] / WTH[k] for k in g.key if k in p]
         if rr:
             res["by_machine"][tok][name] = float(np.median(rr))
 Path(out_path).write_text(json.dumps(res, indent=1))

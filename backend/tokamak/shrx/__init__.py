@@ -31,6 +31,33 @@ CAVEAT = ("SHRX: SINTEZ-тің нейрожелілік тасымал моде�
           "асып түспейді. Кіріс ауқымынан тыс нүктелер қиылады (out_of_range). Қараңыз: docs/shrx/.")
 WEIGHTS_PATH = Path(os.environ.get("SHRX_WEIGHTS") or Path(__file__).with_name("weights.npz"))
 
+#: QLKNN (and so SHRX) was trained on gyrokinetic runs at one inverse aspect ratio, epsilon = 1/3, with circular flux
+#: surfaces.  Trapped-particle physics -- hence the ITG/TEM thresholds -- moves with epsilon, and spherical tokamaks add
+#: electromagnetic and micro-tearing channels QuaLiKiz-based networks do not contain.  The limits below are where the
+#: database test (docs/shrx/) stopped trusting the model: conventional tokamaks to epsilon ~ 0.45, spherical ones fail.
+EPS_OK = (0.2, 0.45)
+EPS_MARGINAL = (0.15, 0.6)
+KAPPA_OK = 2.2
+
+
+def machine_validity(machine) -> dict:
+    """Is this machine inside the regime SHRX's teacher (QLKNN) was built for?  ``status``: ok / marginal / outside."""
+    eps = float(machine.a / machine.R0)
+    kappa = float(getattr(machine, "kappa_x", 1.0))
+    reasons = []
+    if eps < EPS_MARGINAL[0] or eps > EPS_MARGINAL[1]:
+        status = "outside"
+        reasons.append(f"a/R0 = {eps:.2f}: QLKNN was trained at 1/3 and fails far from it (spherical tokamaks)")
+    elif eps < EPS_OK[0] or eps > EPS_OK[1]:
+        status = "marginal"
+        reasons.append(f"a/R0 = {eps:.2f}: outside the {EPS_OK[0]}-{EPS_OK[1]} range the model was checked on")
+    else:
+        status = "ok"
+    if kappa > KAPPA_OK:
+        status = "outside" if status == "outside" else "marginal"
+        reasons.append(f"kappa = {kappa:.2f}: QLKNN's flux surfaces are close to circular")
+    return {"status": status, "epsilon": eps, "kappa": kappa, "reasons": reasons}
+
 
 class Shrx:
     """The trained network.  ``predict`` maps QLKNN-style inputs to gyro-Bohm fluxes."""
@@ -106,6 +133,16 @@ def load_ensemble():
     return _ENSEMBLE
 
 
+def _ood_core(net, X: np.ndarray, ood: np.ndarray) -> float:
+    """Share of the radial points that QLKNN's radial range covers (x in its box) whose inputs still leave the box.
+
+    ``ood_fraction`` also counts the axis and the edge, which lie outside the box in every discharge; this one is ~0 in a
+    healthy run and large when the state itself (T_i/T_e, q, shear, ...) is outside what the network knows."""
+    j = bridge.FEATURES.index("x")
+    inside = (X[:, j] >= net.lo[j]) & (X[:, j] <= net.hi[j])
+    return float(ood[inside].mean()) if inside.any() else 1.0
+
+
 def evaluate(rho, Te, Ti, ne20, q, machine, zeff: float, normni: float = 0.9, uncertainty: bool = False) -> dict:
     """chi_e, chi_i [m^2/s] on the given radial grid for one machine.
 
@@ -125,7 +162,7 @@ def evaluate(rho, Te, Ti, ne20, q, machine, zeff: float, normni: float = 0.9, un
         chi_i, chi_e = bridge.to_si(flux[:, 0], flux[:, 1], aux, a_mass=machine.a_mass)
         ood = net.out_of_range(X)
         return {"chi_e": chi_e, "chi_i": chi_i, "gamma_e_gb": flux[:, 2],
-                "ood_fraction": float(ood.mean()), "ood": ood, "features": X}
+                "ood_fraction": float(ood.mean()), "ood_core": _ood_core(net, X, ood), "ood": ood, "features": X}
     net = load_ensemble()
     members = net.predict_members(X)                                  # (K, N, 3)
     flux = members.mean(axis=0)
@@ -139,6 +176,6 @@ def evaluate(rho, Te, Ti, ne20, q, machine, zeff: float, normni: float = 0.9, un
     live = (ci > 0.05 * 1.0001).any(axis=(0, 1))
     uncertain = live & ((spread["chi_e"] > net.unc_threshold) | (spread["chi_i"] > net.unc_threshold))
     ood = net.out_of_range(X)
-    return {"chi_e": chi_e, "chi_i": chi_i, "gamma_e_gb": flux[:, 2], "ood_fraction": float(ood.mean()), "ood": ood,
-            "features": X, "chi_e_spread": spread["chi_e"], "chi_i_spread": spread["chi_i"], "uncertain": uncertain,
+    return {"chi_e": chi_e, "chi_i": chi_i, "gamma_e_gb": flux[:, 2], "ood_fraction": float(ood.mean()), "ood_core": _ood_core(net, X, ood),
+            "ood": ood, "features": X, "chi_e_spread": spread["chi_e"], "chi_i_spread": spread["chi_i"], "uncertain": uncertain,
             "uncertain_fraction": float(uncertain.mean())}

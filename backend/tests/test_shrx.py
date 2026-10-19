@@ -115,3 +115,26 @@ def test_shrx_endpoint():
     # far below the critical gradient QLKNN (and SHRX) switch the turbulence off
     low = client.post("/ml/shrx", json={"Ati": 1.0, "Ate": 1.0, "Ane": 1.0, "q": 2.0, "smag": 1.5, "x": 0.6}).json()
     assert low["chi_i_m2_s"] < d["chi_i_m2_s"]
+
+
+def test_machine_validity_flags_spherical_tokamaks():
+    machines = list_machines()
+    assert shrx.machine_validity(machines["iter"])["status"] == "ok"
+    assert shrx.machine_validity(machines["diiid"])["status"] == "ok"
+    assert shrx.machine_validity(machines["ktm"])["status"] == "marginal"
+    for key in ("nstx", "nstxu", "mastu"):
+        v = shrx.machine_validity(machines[key])
+        assert v["status"] == "outside" and v["reasons"], key
+
+
+@needs_weights
+def test_ood_core_ignores_the_structural_edge_points():
+    """ood_fraction counts the axis and edge, outside QLKNN's radial range in every discharge; ood_core does not."""
+    m = list_machines()["jet"]
+    rho = np.linspace(0, 1, 65)
+    Te = 1.0 + 20.0 * (1 - rho ** 2) ** 1.5
+    out = shrx.evaluate(rho, Te, 0.9 * Te, 0.1 + 0.9 * (1 - 0.5 * rho ** 2) ** 0.5, 1.0 + 2.5 * rho ** 2, m, 1.8)
+    assert out["ood_fraction"] > 0.2 and out["ood_core"] == 0.0
+    # cold ions (T_i/T_e below the box) are flagged as soon as they sit inside the radial range
+    out = shrx.evaluate(rho, Te, 0.1 * Te, 0.1 + 0.9 * (1 - 0.5 * rho ** 2) ** 0.5, 1.0 + 2.5 * rho ** 2, m, 1.8)
+    assert out["ood_core"] > 0.5

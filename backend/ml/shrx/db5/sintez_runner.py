@@ -122,7 +122,7 @@ def run_record_calibrated(args):
     record, transport_model, t_end = args
     record = SimpleNamespace(**record)
     t0 = time.time()
-    out = {"TOK": record.TOK, "SHOT": int(record.SHOT), "ok": False}
+    out = {"TOK": record.TOK, "SHOT": int(record.SHOT), "TIME": float(record.TIME), "ok": False}
     try:
         target_w = float(record.WTH) / 1e6
         p_target = float(record.PLTH) / 1e6
