@@ -89,7 +89,7 @@ D = {p.stem: json.loads(p.read_text()) for p in sorted((HERE / "data").glob("*.j
 from values import make as _make_values  # noqa: E402
 V = _make_values(D)
 NS = {"pctm": pctm, "D": D, "V": V, "S": D.get("shrx_results"), "T": D.get("torax_results"), "E": D.get("ensemble"), "I": D.get("inloop"), "C": D.get("chaos"), "U": D.get("uncertainty"), "Sx": D.get("st_teacher"),
-      "B": D.get("db5"), "c": c, "pct": pct, "rngp": rngp, "sg": sg, "sci": sci, "thou": thou, "np": np, "math": math, "len": len, "round": round,
+      "B": D.get("db5"), "c": c, "cm": cm, "pct": pct, "rngp": rngp, "sg": sg, "sci": sci, "thou": thou, "np": np, "math": math, "len": len, "round": round,
       "min": min, "max": max, "sum": sum, "abs": abs, "sorted": sorted, "int": int, "float": float, "range": range, "zip": zip,
       "enumerate": enumerate, "list": list, "dict": dict}
 

@@ -570,7 +570,7 @@ def fig_st_w():
     fig, axs = plt.subplots(1, 2, figsize=(6.9, 2.9), sharey=True)
     mk = {"MAST": "o", "NSTX": "s", "START": "^"}
     mcol = {"MAST": C_O, "NSTX": C_IP, "START": C_B}
-    lim = (1e-3, 60)
+    lim = (3e-4, 60)
     for ax, key, lab, ttl in ((axs[0], "st", "а", "SINTEZ + SHRX (QLKNN)"), (axs[1], "st_tglf", "б", "SINTEZ + TGLFNN-STEP")):
         rows = B.get(key)
         ax.plot(lim, lim, color=K, lw=0.8)
