@@ -48,6 +48,12 @@ def pct(x, n=0):
     return c(100.0 * x, n) + " %"
 
 
+def rngp(a, b, n=0):
+    """Percent range in ascending order with one percent sign: rngp(0.065, 0.059, 1) -> '5,9–6,5 %'."""
+    lo, hi = sorted((a, b))
+    return f"{c(100.0 * lo, n)}–{c(100.0 * hi, n)} %"
+
+
 def cm(x, n=1):
     """Number for use inside $...$: the decimal comma needs braces, otherwise TeX adds a space after it."""
     return c(x, n).replace(",", "{,}")
@@ -83,7 +89,7 @@ D = {p.stem: json.loads(p.read_text()) for p in sorted((HERE / "data").glob("*.j
 from values import make as _make_values  # noqa: E402
 V = _make_values(D)
 NS = {"pctm": pctm, "D": D, "V": V, "S": D.get("shrx_results"), "T": D.get("torax_results"), "E": D.get("ensemble"), "I": D.get("inloop"), "C": D.get("chaos"), "U": D.get("uncertainty"), "Sx": D.get("st_teacher"),
-      "B": D.get("db5"), "c": c, "pct": pct, "sg": sg, "sci": sci, "thou": thou, "np": np, "math": math, "len": len, "round": round,
+      "B": D.get("db5"), "c": c, "pct": pct, "rngp": rngp, "sg": sg, "sci": sci, "thou": thou, "np": np, "math": math, "len": len, "round": round,
       "min": min, "max": max, "sum": sum, "abs": abs, "sorted": sorted, "int": int, "float": float, "range": range, "zip": zip,
       "enumerate": enumerate, "list": list, "dict": dict}
 

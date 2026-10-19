@@ -1,5 +1,2 @@
 node_modules/
 build/
-# draft outputs (removed from this list when the article is final)
-article_kk.pdf
-article_kk.html
