@@ -81,8 +81,10 @@ def _load_transport_surrogate() -> Optional[dict]:
     return bundle
 
 
-CAVEAT_TORAX = ("DeepMind TORAX стиліндегі 1D ядролық турбулентті тасымал суррогаты (MLP). "
-                "Жергілікті градиенттерден (R/L_T, q, s) sub-millisecond ішінде chi(rho) есептейді.")
+CAVEAT_SHRX = ("SHRX v0: бастапқы нейрожелілік тасымал моделі (MLP), жобаның өз формулаларынан оқытылған — "
+               "гирокинетикалық деректерден емес. ITER-де TORAX-тан әлдеқайда төмен қуат береді; "
+               "қазіргі модель — SHRX (transport_model=\"shrx\"). Қараңыз: docs/shrx/.")
+CAVEAT_TORAX = CAVEAT_SHRX      # old name
 
 
 def status() -> dict:
@@ -120,7 +122,8 @@ def status() -> dict:
             "synthetic": CAVEAT_SYNTHETIC,
             "jtext": CAVEAT_JTEXT,
             "fec": CAVEAT_FEC,
-            "torax": CAVEAT_TORAX,
+            "shrx_v0": CAVEAT_SHRX,
+            "torax": CAVEAT_SHRX,
         },
     }
 
@@ -168,7 +171,7 @@ def predict_transport_surrogate(rho: float, r_lt: float, r_ln: float, q: float,
                                 Te: float, ne: float, Ti_over_Te: float = 1.0,
                                 B0: float = 5.3, R0: float = 6.2, a: float = 2.0,
                                 h_mode: bool = True) -> float:
-    """Evaluates turbulent thermal diffusivity chi [m^2/s] with DeepMind TORAX style neural surrogate."""
+    """Evaluates chi [m^2/s] with SHRX v0 (the original neural transport surrogate)."""
     import numpy as np
     bundle = _load_transport_surrogate()
     if bundle is None:

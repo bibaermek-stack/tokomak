@@ -1,11 +1,12 @@
-"""DeepMind TORAX style Neural Transport Surrogate Model Training.
+"""SHRX v0 (the original "TORAX-style" neural transport surrogate): training.
 
 Trains a deep neural surrogate network (analogous to QLKNN in TORAX) that predicts
 local turbulent thermal diffusivity chi(rho) from local gradients (R/L_T, R/L_n),
 safety factor q, temperature Te, density ne, and magnetic configuration.
 
-This brings fast, sub-millisecond core transport evaluations to the 1D transport solver,
-matching Google DeepMind TORAX's neural surrogate architecture.
+NOTE: v0 learns this package's own Bohm/gyro-Bohm + critical-gradient formulas, not
+gyrokinetic data, and therefore inherits their error (ITER Q ~ 1.3).  The current model,
+SHRX, is distilled from QLKNN instead -- see ml/shrx/ and docs/shrx/.
 """
 
 from __future__ import annotations
@@ -114,7 +115,7 @@ def generate_transport_dataset(n_samples: int = 50_000, seed: int = 42):
 
 def train_surrogate(n_samples: int = 65_000, seed: int = 42):
     print("=" * 70)
-    print(" DeepMind TORAX-Style Neural Transport Surrogate Model Training ")
+    print(" SHRX v0 Neural Transport Model Training ")
     print("=" * 70)
     
     t0 = time.time()
@@ -178,7 +179,7 @@ def train_surrogate(n_samples: int = 65_000, seed: int = 42):
         "scaler": scaler,
         "feature_names": feature_names,
         "target": "chi_thermal_diffusivity",
-        "description": "DeepMind TORAX style Neural Surrogate for Tokamak Turbulent Transport"
+        "description": "SHRX v0 neural transport model for tokamak turbulent transport"
     }
     joblib.dump(payload, model_path)
     print(f"      Saved model to: {model_path}")
@@ -196,15 +197,15 @@ def train_surrogate(n_samples: int = 65_000, seed: int = 42):
     print(f"      Saved fast numpy weights to: {npz_path}")
     
     report = {
-        "model_type": "DeepMind TORAX Neural Transport Surrogate (MLP)",
+        "model_type": "SHRX v0 neural transport model (MLP)",
         "hidden_layers": [128, 64],
-        "activation": "tanh",
+        "activation": "relu",
         "n_samples": int(len(X)),
         "train_r2": train_r2,
         "test_r2": test_r2,
         "test_mae_m2_s": test_mae,
         "test_rmse_m2_s": test_rmse,
-        "inference_latency_ms": 0.08,
+        "inference_latency_ms": None,   # not measured here; see docs/torax_comparison (about 0.2-0.3 ms for 65 points)
         "features": feature_names,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ")
     }

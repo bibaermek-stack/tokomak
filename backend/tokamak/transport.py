@@ -100,11 +100,23 @@ TRANSPORT_MODELS: Dict[str, TransportModel] = {
     "cgm": TransportModel(
         "cgm", "Критикалық градиент", "ITG/TEM табалдырықты тасымал",
         "R/L_T табалдырықтан асқанда тасымал күрт қосылады"),
-    "neural_surrogate": TransportModel(
-        "neural_surrogate", "DeepMind TORAX стиліндегі нейрожелілік суррогат",
-        "QLKNN / TORAX стиліндегі терең MLP суррогаты",
-        "жергілікті градиенттерден (R/L_T, q, s, beta) chi(rho) профилін 1 мс-тен аз уақытта болжайды"),
+    "shrx": TransportModel(
+        "shrx", "SHRX нейрожелілік тасымал моделі",
+        "SINTEZ-тің өз модельі; QLKNN (DeepMind TORAX) деректерінен оқытылған",
+        "жергілікті градиенттерден (R/L_T, q, ŝ, ν*) χ_e мен χ_i береді; тек NumPy, JAX керек емес"),
+    "shrx_v0": TransportModel(
+        "shrx_v0", "SHRX v0 (бастапқы нұсқа)",
+        "TORAX стиліндегі MLP суррогаты; жобаның өз формулаларынан оқытылған",
+        "салыстыруды қайта жасау үшін сақталған; ITER-де Q ≈ 1,3 береді"),
 }
+
+#: Old names that still work.  ``neural_surrogate`` was the first name of SHRX.
+TRANSPORT_ALIASES: Dict[str, str] = {"neural_surrogate": "shrx"}
+
+
+def canonical_transport(key: str) -> str:
+    """Resolve a deprecated transport-model name to the current one."""
+    return TRANSPORT_ALIASES.get(key, key)
 
 
 # ---------------------------------------------------------------------------
@@ -299,13 +311,14 @@ def _load_surrogate_weights():
     return _SURROGATE_WEIGHTS
 
 
-def chi_neural_surrogate(state: PlasmaState, R0: float, a_minor: float,
-                         q_prof: np.ndarray, h_mode: bool,
-                         B0: float = 5.3) -> np.ndarray:
-    """DeepMind TORAX style neural surrogate evaluation of chi(rho).
-    
-    Evaluates local turbulent transport in < 0.1 ms using a trained deep neural
-    network surrogate (analogous to QLKNN in TORAX). Falls back to CGM if weights not found.
+def chi_shrx_v0(state: PlasmaState, R0: float, a_minor: float,
+                q_prof: np.ndarray, h_mode: bool,
+                B0: float = 5.3) -> np.ndarray:
+    """SHRX v0 (the original "TORAX-style" surrogate): chi_e(rho) from a small MLP.
+
+    Trained on this package's own Bohm/gyro-Bohm + critical-gradient formulas, not on
+    gyrokinetic data.  Kept so earlier comparisons can be reproduced; the current model
+    is :func:`tokamak.shrx.evaluate`.  Falls back to CGM if the weights are not found.
     """
     g = state.grid
     w = _load_surrogate_weights()
@@ -343,6 +356,10 @@ def chi_neural_surrogate(state: PlasmaState, R0: float, a_minor: float,
     
     chi = np.clip(out, 0.05, 15.0)
     return chi * _barrier(g.rho, h_mode)
+
+
+#: kept for callers that used the first name
+chi_neural_surrogate = chi_shrx_v0
 
 
 

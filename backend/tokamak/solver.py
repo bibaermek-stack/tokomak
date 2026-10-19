@@ -163,6 +163,8 @@ class Simulator:
         self._eq_seen = False
         self._chi_e = None
         self._chi_i = None
+        self._chi_i_model = None        # set by transport models that supply their own chi_i (SHRX)
+        self.shrx_ood = 0.0
         self.flux = cur.FluxBudget(
             available=cur.cs_flux_capacity(self.m.R0, self.m.a, self.m.Ip) * 1.35)
         self.psi_prof = np.zeros(g.n)
@@ -296,10 +298,30 @@ class Simulator:
                                         self.h_mode)
         if cfg.transport_model == "cgm":
             return tr.chi_cgm(s, m.a, self.h_mode, m.R0)
-        if cfg.transport_model == "neural_surrogate":
-            return tr.chi_neural_surrogate(s, m.R0, m.a, self.q_prof, self.h_mode, m.B0)
+        key = tr.canonical_transport(cfg.transport_model)
+        self._chi_i_model = None
+        if key in ("shrx", "qlknn_ref"):
+            return self._chi_shrx(reference=(key == "qlknn_ref"))
+        if key == "shrx_v0":
+            return tr.chi_shrx_v0(s, m.R0, m.a, self.q_prof, self.h_mode, m.B0)
         # scaling-anchored: stiff shape, amplitude set by the chosen scaling
         return self.chi0 * tr.chi_shape(g.rho, self.h_mode, s.Te, m.R0, m.a)
+
+    def _chi_shrx(self, reference: bool = False) -> np.ndarray:
+        """SHRX: chi_e AND chi_i from the network (every other model leaves chi_i to the default shape).
+
+        ``reference=True`` swaps in the real QLKNN (needs JAX; evaluation only, see tokamak.shrx.reference).
+        """
+        if reference:
+            from .shrx import reference as shrx
+        else:
+            from . import shrx
+        g, s, m = self.grid, self.state, self.m
+        out = shrx.evaluate(g.rho, s.Te, s.Ti, s.ne, self.q_prof, m, self.c["z_eff"], self.c["f_dt"])
+        bar = tr._barrier(g.rho, self.h_mode)
+        self._chi_i_model = out["chi_i"] * bar
+        self.shrx_ood = out["ood_fraction"]
+        return out["chi_e"] * bar
 
     def _update_pedestal(self, dt: float) -> None:
         """Set the pedestal-top temperature for this step.
@@ -419,8 +441,8 @@ class Simulator:
         # that limit cycle into the steady state it is oscillating about.
         w = min(dt / max(cfg.chi_relax, 1e-3), 1.0)
         chi_new = self._chi()
-        chi_i_new = 1.8 * self.chi0 * tr.chi_shape(g.rho, self.h_mode, s.Ti,
-                                                   m.R0, m.a)
+        chi_i_new = (self._chi_i_model if self._chi_i_model is not None
+                     else 1.8 * self.chi0 * tr.chi_shape(g.rho, self.h_mode, s.Ti, m.R0, m.a))
         if getattr(self, "_chi_e", None) is None:
             self._chi_e, self._chi_i = chi_new, chi_i_new
         self._chi_e = self._chi_e + (chi_new - self._chi_e) * w
@@ -737,6 +759,7 @@ class Simulator:
             "ped_width_psi": self.ped.width_psi if self.ped else 0.0,
             "ped_p": self.ped.p_ped if self.ped else 0.0,
             "V": m.V, "S": m.S, "kappaA": m.kappa_a,
+            "shrx_ood": self.shrx_ood,
         }
         if self.stab is not None:
             st = self.stab

@@ -2,6 +2,8 @@
 
 **Нәтиже:** [`SINTEZ_vs_TORAX_report.pdf`](SINTEZ_vs_TORAX_report.pdf) (6 бет, қазақша).
 
+> **Атау өзгерді.** Бұл есептегі «SINTEZ нейрожелі суррогаты» қазір **SHRX v0** (`transport_model="shrx_v0"`; ескі аты `neural_surrogate`). Оның орнына QLKNN-нен дистилляцияланған **SHRX** келді — қараңыз [`../shrx/`](../shrx/).
+
 Бірдей ITER режимінде (15 МА, 5,3 Тл, 50 МВт, бірдей n_e(ρ) мен педестал) екі тасымал моделі салыстырылды:
 
 | | P_fus | Q |
@@ -36,6 +38,7 @@ cd docs/torax_comparison
 mkdir -p work
 
 # 1) SINTEZ (жоба ортасы), әр модельге ~1 мин; нәтиже детерминді
+#    (neural_surrogate бұл жерде shrx_v0 ретінде жүреді, яғни есептегі бұрынғы желі)
 for m in scaling_anchored cgm neural_surrogate bohm_gyrobohm gyrobohm; do
   python run_sintez.py $m work/sintez_$m.json
 done

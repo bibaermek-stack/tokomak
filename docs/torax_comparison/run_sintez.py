@@ -16,8 +16,11 @@ import numpy as np  # noqa: E402
 from tokamak.solver import Simulator, SolverConfig  # noqa: E402
 
 tm, out = sys.argv[1], sys.argv[2]
+# this report was made with the first neural surrogate, now called shrx_v0; the old name "neural_surrogate"
+# nowadays resolves to the new SHRX, so keep reproducing the report with the old model
+run_model = "shrx_v0" if tm == "neural_surrogate" else tm
 t0 = time.time()
-sim = Simulator(SolverConfig(machine="iter", transport_model=tm))
+sim = Simulator(SolverConfig(machine="iter", transport_model=run_model))
 log = sim.run_scenario(t_end=120.0, record_every=2.0)
 wall = time.time() - t0
 res = {
