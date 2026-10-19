@@ -19,10 +19,12 @@ detachment is.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+from scipy.optimize import brentq
 
 from .constants import E_CHARGE, M_P, MU0
 
@@ -114,16 +116,32 @@ def two_point(P_sep: float, *, R0: float, a: float, B0: float, B_pol: float,
     # slopes, so the root is bracketed and bisection is unconditionally
     # robust -- the fixed-point relaxation this replaces could sit on the
     # clamp instead of converging.
-    def residual(T_t: float) -> float:
+    n_u = n_sep20 * 1e20
+
+    def residual(T_t):
+        """Sheath flux minus surviving flux; accepts a number or an array of target temperatures."""
+        T_t = np.asarray(T_t, dtype=float)
         T_u = (T_t ** 3.5 + 3.5 * q_par * 1e6 * L_par / KAPPA_0E) ** (2.0 / 7.0)
-        f_mom = 1.0 / (1.0 + (5.0 / max(T_t, 0.3)) ** 2)
-        f_pow = 1.0 / (1.0 + (3.0 / max(T_t, 0.3)) ** 2)
+        f_mom = 1.0 / (1.0 + (5.0 / np.maximum(T_t, 0.3)) ** 2)
+        f_pow = 1.0 / (1.0 + (3.0 / np.maximum(T_t, 0.3)) ** 2)
         c_s = 9.79e3 * np.sqrt(2.0 * T_t / A_mass)
-        n_t = max(f_mom * n_u * T_u / (2.0 * T_t), 1e14)
+        n_t = np.maximum(f_mom * n_u * T_u / (2.0 * T_t), 1e14)
         q_sheath = GAMMA_SHEATH * n_t * c_s * T_t * E_CHARGE / 1e6
         return q_sheath - q_par * f_pow
 
-    n_u = n_sep20 * 1e20
+    k_u = 3.5 * q_par * 1e6 * L_par / KAPPA_0E
+    k_s = GAMMA_SHEATH * E_CHARGE / 1e6
+
+    def residual_scalar(T_t: float) -> float:
+        """The same residual for one temperature, in plain float maths (the bisection calls it ~10 times)."""
+        T_u = (T_t ** 3.5 + k_u) ** (2.0 / 7.0)
+        T_c = T_t if T_t > 0.3 else 0.3
+        f_mom = 1.0 / (1.0 + (5.0 / T_c) ** 2)
+        f_pow = 1.0 / (1.0 + (3.0 / T_c) ** 2)
+        c_s = 9.79e3 * math.sqrt(2.0 * T_t / A_mass)
+        n_t = max(f_mom * n_u * T_u / (2.0 * T_t), 1e14)
+        return k_s * n_t * c_s * T_t - q_par * f_pow
+
     # Both loss factors vanish as the target cools, so the residual has a
     # spurious cold root as well as the physical one.  Walk in from the hot
     # end and take the FIRST sign change: that is the attached branch, and
@@ -132,20 +150,14 @@ def two_point(P_sep: float, *, R0: float, a: float, B0: float, B_pol: float,
     # balances at a target temperature of order a keV, which is the
     # model saying the plate cannot survive without seeding
     grid = np.geomspace(5000.0, 0.2, 300)
-    vals = np.array([residual(T) for T in grid])
+    vals = residual(grid)
     idx = np.where(np.sign(vals[:-1]) != np.sign(vals[1:]))[0]
     no_root = len(idx) == 0
     if no_root:
         T_t = float(grid[int(np.argmin(np.abs(vals)))])
     else:
-        lo, hi = grid[idx[0] + 1], grid[idx[0]]
-        for _ in range(70):
-            mid = 0.5 * (lo + hi)
-            if residual(hi) * residual(mid) <= 0:
-                lo = mid
-            else:
-                hi = mid
-        T_t = 0.5 * (lo + hi)
+        # root of a sign-changing, smooth function on the bracket the grid found (scalar maths: ~10 calls)
+        T_t = float(brentq(residual_scalar, grid[idx[0] + 1], grid[idx[0]], xtol=1e-12, rtol=1e-13))
     T_u = (T_t ** 3.5 + 3.5 * q_par * 1e6 * L_par / KAPPA_0E) ** (2.0 / 7.0)
 
     c_s = 9.79e3 * np.sqrt(2.0 * max(T_t, 0.2) / A_mass)

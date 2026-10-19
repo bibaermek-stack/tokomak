@@ -53,8 +53,7 @@ def neoclassical_resistivity(rho, ne20, Te_kev, z_eff: float,
     with a collisionality-dependent effective trapped fraction.
     """
     Z = max(z_eff, 1.0)
-    ft = np.array([trapped_fraction(eps * max(r, 1e-3))
-                   for r in np.atleast_1d(rho)])
+    ft = np.atleast_1d(trapped_fraction(eps * np.maximum(np.atleast_1d(rho), 1e-3)))
     nue = collisionality(rho, ne20, Te_kev, z_eff, R0, eps, q_prof)
     ft33 = ft / (1.0 + (0.55 - 0.1 * ft) * np.sqrt(nue)
                  + 0.45 * (1.0 - ft) * nue / Z ** 1.5)
@@ -115,7 +114,7 @@ def bootstrap(rho, ne20, Te_kev, Ti_kev, q_prof, *, R0: float, a: float,
     Ti = np.maximum(np.asarray(Ti_kev, dtype=float), 0.02)
     ni = ne * f_ion
 
-    ft = np.array([trapped_fraction(eps * max(r, 1e-3)) for r in rho])
+    ft = trapped_fraction(eps * np.maximum(rho, 1e-3))
     nue = collisionality(rho, ne, Te, z_eff, R0, eps, q_prof)
     nui = nue * (Ti / Te) ** 2 * np.sqrt(2.0)      # rough ion scaling
 

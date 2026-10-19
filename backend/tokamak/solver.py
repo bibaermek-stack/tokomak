@@ -115,6 +115,36 @@ def _slowing_integral(x: float) -> float:
     return float(np.trapezoid(1.0 / (1.0 + u ** 1.5), u))
 
 
+def _slowing_integral_arr(x: np.ndarray) -> np.ndarray:
+    """:func:`_slowing_integral` for an array of x at once (same quadrature, same switch at x = 4)."""
+    I_INF = 4.0 * np.pi / (3.0 * np.sqrt(3.0))
+    x = np.asarray(x, dtype=float)
+    out = np.zeros_like(x)
+    big = x > 4.0
+    out[big] = I_INF - 2.0 / np.sqrt(x[big])
+    mid = (x > 0.0) & ~big
+    if mid.any():
+        u = np.linspace(0.0, 1.0, 65)[None, :] * x[mid][:, None]          # (m, 65)
+        out[mid] = np.trapezoid(1.0 / (1.0 + u ** 1.5), u, axis=1)
+    return out
+
+
+def _slowing_G_arr(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=float)
+    pos = x > 0
+    out = np.zeros_like(x)
+    out[pos] = (x[pos] - _slowing_integral_arr(x)[pos]) / (2.0 * x[pos])
+    return out
+
+
+def _ion_fraction_arr(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=float)
+    pos = x > 0
+    out = np.ones_like(x)
+    out[pos] = _slowing_integral_arr(x)[pos] / x[pos]
+    return out
+
+
 def _slowing_G(x: float) -> float:
     """Stored energy per unit birth power, in units of tau_s."""
     return 0.0 if x <= 0 else (x - _slowing_integral(x)) / (2.0 * x)
@@ -269,8 +299,8 @@ class Simulator:
         if w_tot > 1e-9:
             ts = tau_s(4.0, 2.0, s.Te, s.ne)
             xs = E_ALPHA_KEV / e_crit(4.0, s.Te)
-            Gs = np.array([_slowing_G(v) for v in xs])
-            Fi = np.array([_ion_fraction(v) for v in xs])
+            Gs = _slowing_G_arr(xs)
+            Fi = _ion_fraction_arr(xs)
             W_a = float(np.trapezoid(src * ts * Gs, g.rho))
             f_alpha_ion = float(np.trapezoid(src * Fi, g.rho)) / w_tot
         else:
