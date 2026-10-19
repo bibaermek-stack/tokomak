@@ -337,6 +337,8 @@ class Simulator:
         self._chi_i_model = None
         if key in ("shrx", "qlknn_ref", "shrx_ens"):
             return self._chi_shrx(reference=(key == "qlknn_ref"), ensemble=(key == "shrx_ens"))
+        if key == "tglfnn_ref":
+            return self._chi_tglf()
         if key == "shrx_v0":
             return tr.chi_shrx_v0(s, m.R0, m.a, self.q_prof, self.h_mode, m.B0)
         # scaling-anchored: stiff shape, amplitude set by the chosen scaling
@@ -366,6 +368,22 @@ class Simulator:
             self.shrx_uncertain = out["uncertain_fraction"]
         else:
             out = shrx.evaluate(g.rho, s.Te, s.Ti, s.ne, self.q_prof, m, self.c["z_eff"], self.c["f_dt"])
+        bar = tr._barrier(g.rho, self.h_mode)
+        self._chi_i_model = out["chi_i"] * bar
+        self.shrx_ood = out["ood_fraction"]
+        self.shrx_ood_core = out["ood_core"]
+        return out["chi_e"] * bar
+
+    def _chi_tglf(self) -> np.ndarray:
+        """TGLFNN-UKAEA (STEP) in the loop: chi_e and chi_i from the second teacher (evaluation only; weights not shipped).
+
+        See :mod:`tokamak.shrx.tglf`.  Needs ``TGLFNN_STEP_PKL``; the network is five times 6 x 512 per flux, so a step costs
+        tens of milliseconds -- this is a reference, not a production transport model.
+        """
+        from .shrx import tglf
+        g, s, m = self.grid, self.state, self.m
+        out = tglf.evaluate(g.rho, s.Te, s.Ti, s.ne, self.q_prof, m, self.c["z_eff"], self.c["f_dt"],
+                            li=self.li, beta_p=getattr(self, "beta_p", 0.5))
         bar = tr._barrier(g.rho, self.h_mode)
         self._chi_i_model = out["chi_i"] * bar
         self.shrx_ood = out["ood_fraction"]
