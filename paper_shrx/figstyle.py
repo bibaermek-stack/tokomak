@@ -52,5 +52,8 @@ def panel(ax, label, dx=0.0, dy=1.02):
 def save(fig, name, vector=True):
     path = OUT / f"{name}.{'svg' if vector else 'png'}"
     fig.savefig(path, bbox_inches="tight", pad_inches=0.04)
+    if vector:                                       # the Word version cannot embed SVG: a 300 dpi copy for it
+        (OUT / "png").mkdir(exist_ok=True)
+        fig.savefig(OUT / "png" / f"{name}.png", bbox_inches="tight", pad_inches=0.04, dpi=300)
     plt.close(fig)
     return path

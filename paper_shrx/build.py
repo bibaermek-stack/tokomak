@@ -249,15 +249,30 @@ def refs_html():
     return f'<section class="refs">\n<h1 class="unnumbered">Әдебиеттер</h1>\n<ol>\n{items}\n</ol>\n</section>'
 
 
+def stray_tex_check(html):
+    """TeX that was meant for KaTeX but sits outside $...$ would be printed literally: look for it in the text left after removing the math and code."""
+    t = re.sub(r'<span class="math (?:inline|display)">.*?</span>', "", html, flags=re.S)
+    t = re.sub(r"<(code|pre)[ >].*?</\1>", "", t, flags=re.S)
+    t = re.sub(r"<[^>]+>", " ", t)
+    bad = re.findall(r".{25}(?:\\[A-Za-z]{2,}|\{,\}|\^\{|_\{|\$).{25}", t)
+    if bad:
+        msg = "TeX outside math delimiters:\n  " + "\n  ".join(b.strip() for b in bad[:8])
+        if "--draft" in sys.argv:
+            print("WARNING:", msg)
+        else:
+            raise SystemExit(msg)
+
+
 def main():
     text = read_sections()
-    text = number_blocks(text)           # numbering must see the document in reading order, before macros produce more text
-    text = expand_macros(text)
+    text = expand_macros(text)           # macros may add whole figures/tables (conditional blocks), so they come before the numbering
+    text = number_blocks(text)           # numbering sees the document in reading order
     text = cite(text)
     md = BUILD / "article.md"
     md.write_text(text)
     body = run(["pandoc", "-f", "markdown+tex_math_dollars+raw_html+pipe_tables+smart+fenced_divs", "-t", "html5", "--mathjax",
                 "--wrap=none", "--number-sections", "-V", "lang=kk"], text)
+    stray_tex_check(body)
     body = run(["node", str(HERE / "tools/katex_render.js")], body)
     body = body.replace("<!--REFS-->", refs_html())
     if "<!--REFS-->" not in text and CITED:

@@ -22,10 +22,11 @@ cd paper_shrx
 npm install                       # KaTeX 0.16.11 (build/ мен node_modules/ git-ке кірмейді)
 python3 make_figures.py           # data/*.json -> figures/
 python3 build.py                  # -> article_kk.pdf, article_kk.html (PDF үшін Chromium: build.py ішіндегі CHROME жолы)
+python3 build_docx.py           # -> article_kk.docx (Word: формулалар — Word теңдеулері, суреттер — PNG; pandoc, python-docx қажет)
 python3 build.py --draft          # деректер әлі келмесе: есептелмеген макрос [?] болып қалады (соңғы нұсқада рұқсат етілмейді)
 ```
 
-Қажеттілігі: Python 3 (numpy, matplotlib), pandoc, Node.js, Chromium. Шрифт: Liberation Serif (Times-метрика), қазақ әріптері бар.
+Қажеттілігі: Python 3 (numpy, matplotlib, pillow; Word үшін python-docx), pandoc ≥ 3, Node.js, Chromium. Шрифт: Liberation Serif (Times-метрика), қазақ әріптері бар.
 
 ## Деректердің шығу тегі
 
