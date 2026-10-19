@@ -57,6 +57,14 @@ def available() -> bool:
     return path().is_file()
 
 
+#: the distilled student (SHRX-ST): shipped, NumPy only, needs no teacher weights
+ST_PATH = Path(__file__).with_name("weights_st.npz")
+
+
+def st_available() -> bool:
+    return ST_PATH.is_file()
+
+
 class TglfNN:
     def __init__(self, file: Optional[Path] = None):
         with open(file or path(), "rb") as f:
@@ -106,6 +114,18 @@ class TglfNN:
 
 
 _MODEL: Optional[TglfNN] = None
+_ST = None
+
+
+def load_st():
+    """SHRX-ST: the small network distilled from the teacher (same file format and class as SHRX)."""
+    global _ST
+    if _ST is None:
+        if not st_available():
+            raise FileNotFoundError(f"SHRX-ST weights not found: {ST_PATH}")
+        from . import Shrx
+        _ST = Shrx(ST_PATH)
+    return _ST
 
 
 def load() -> TglfNN:
@@ -202,10 +222,22 @@ def to_si(efe, efi, X, aux, chi_min=0.05, chi_max=100.0):
     return np.clip(chi_e, chi_min, chi_max), np.clip(chi_i, chi_min, chi_max)
 
 
-def evaluate(rho, Te, Ti, ne20, q, machine, zeff: float, normni: float = 0.9, li: float = 0.9, beta_p: float = 0.5) -> dict:
-    """chi_e, chi_i [m^2/s] from the TGLFNN STEP surrogate; same keys as :func:`tokamak.shrx.evaluate`, plus member spreads."""
-    net = load()
+def evaluate(rho, Te, Ti, ne20, q, machine, zeff: float, normni: float = 0.9, li: float = 0.9, beta_p: float = 0.5,
+             student: bool = False) -> dict:
+    """chi_e, chi_i [m^2/s] from the TGLFNN STEP surrogate (or, with ``student=True``, from the distilled SHRX-ST network).
+
+    Same keys as :func:`tokamak.shrx.evaluate`; the teacher also returns its member spreads."""
     X, aux = features(rho, Te, Ti, ne20, q, machine, zeff, normni, li, beta_p)
+    if student:
+        net = load_st()
+        flux = net.predict(X.astype(np.float32))
+        chi_e, chi_i = to_si(flux[:, 0], flux[:, 1], X, aux)
+        ood = net.out_of_range(X)
+        j = FEATURES.index("RMIN_LOC")
+        inside = (X[:, j] > 0.1) & (X[:, j] < 0.95)
+        return {"chi_e": chi_e, "chi_i": chi_i, "gamma_e_gb": flux[:, 2], "ood_fraction": float(ood.mean()),
+                "ood_core": float(ood[inside].mean()) if inside.any() else 1.0, "ood": ood, "features": X}
+    net = load()
     f = net.predict(X)
     chi_e, chi_i = to_si(f["efe_gb"], f["efi_gb"], X, aux)
     ood = net.out_of_range(X)

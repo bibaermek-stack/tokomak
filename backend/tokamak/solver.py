@@ -200,6 +200,7 @@ class Simulator:
         self.shrx_uncertain = 0.0        # share of radial points flagged by the ensemble spread (transport_model = shrx_ens)
         self.shrx_validity = 0           # 0 ok / 1 marginal / 2 outside the regime QLKNN covers (machine_validity)
         self._shrx_checked = False
+        self.tglf_log: Optional[list] = None   # set to [] to record (inputs, fluxes) of every tglfnn_ref call (data generation)
         self.flux = cur.FluxBudget(
             available=cur.cs_flux_capacity(self.m.R0, self.m.a, self.m.Ip) * 1.35)
         self.psi_prof = np.zeros(g.n)
@@ -337,8 +338,8 @@ class Simulator:
         self._chi_i_model = None
         if key in ("shrx", "qlknn_ref", "shrx_ens"):
             return self._chi_shrx(reference=(key == "qlknn_ref"), ensemble=(key == "shrx_ens"))
-        if key == "tglfnn_ref":
-            return self._chi_tglf()
+        if key in ("tglfnn_ref", "shrx_st"):
+            return self._chi_tglf(student=(key == "shrx_st"))
         if key == "shrx_v0":
             return tr.chi_shrx_v0(s, m.R0, m.a, self.q_prof, self.h_mode, m.B0)
         # scaling-anchored: stiff shape, amplitude set by the chosen scaling
@@ -374,7 +375,7 @@ class Simulator:
         self.shrx_ood_core = out["ood_core"]
         return out["chi_e"] * bar
 
-    def _chi_tglf(self) -> np.ndarray:
+    def _chi_tglf(self, student: bool = False) -> np.ndarray:
         """TGLFNN-UKAEA (STEP) in the loop: chi_e and chi_i from the second teacher (evaluation only; weights not shipped).
 
         See :mod:`tokamak.shrx.tglf`.  Needs ``TGLFNN_STEP_PKL``; the network is five times 6 x 512 per flux, so a step costs
@@ -383,7 +384,10 @@ class Simulator:
         from .shrx import tglf
         g, s, m = self.grid, self.state, self.m
         out = tglf.evaluate(g.rho, s.Te, s.Ti, s.ne, self.q_prof, m, self.c["z_eff"], self.c["f_dt"],
-                            li=self.li, beta_p=getattr(self, "beta_p", 0.5))
+                            li=self.li, beta_p=getattr(self, "beta_p", 0.5), student=student)
+        if self.tglf_log is not None and not student:
+            self.tglf_log.append(np.column_stack([out["features"], out["efe_gb"], out["efi_gb"], out["gamma_e_gb"],
+                                                  out["efe_gb_std"], out["efi_gb_std"]]).astype(np.float32))
         bar = tr._barrier(g.rho, self.h_mode)
         self._chi_i_model = out["chi_i"] * bar
         self.shrx_ood = out["ood_fraction"]
