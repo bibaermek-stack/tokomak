@@ -27,8 +27,8 @@ while i < len(sys.argv) and "=" in sys.argv[i]:
 df = pd.read_csv(csv)
 keys = list(zip(df.TOK, df.SHOT, df.TIME.round(4)))
 exp = {k: row for k, row in zip(keys, df.to_dict("records"))}
-for row in exp.values():                 # the database gives central temperatures in eV
-    row["TE0"], row["TI0"] = row["TE0"] / 1e3, row["TI0"] / 1e3
+for row in exp.values():                 # the database gives central temperatures in eV; below 0.2 keV it is a placeholder, not data
+    row["TE0"], row["TI0"] = [v / 1e3 if np.isfinite(v) and v > 200.0 else np.nan for v in (row["TE0"], row["TI0"])]
 
 
 def stats(ratio):
