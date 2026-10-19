@@ -128,7 +128,7 @@ def run_record_calibrated(args):
         p_target = float(record.PLTH) / 1e6
         # radiation correction as in run_record, from a first predictive pass
         _, d0 = _burn(record, transport_model, t_end, p_target)
-        p_aux = p_target + d0["Prad"]
+        p_aux = max(p_target + d0["Prad"] - d0["Pohm"], 0.1 * p_target)
         x_lo, x_hi, f_lo, f_hi = None, None, None, None
         x = np.log(max(d0["Tped"], 0.05))
         for it in range(7):
@@ -159,12 +159,13 @@ def run_record(args):
     t0 = time.time()
     out = {"TOK": record.TOK, "SHOT": int(record.SHOT), "TIME": float(record.TIME), "ok": False}
     try:
-        # The record gives the power that crosses the separatrix.  SINTEZ radiates some of the heating on its way out, so
-        # a first pass measures that and a second pass adds it back: the conducted power then equals the record's PLTH.
+        # The record gives the power that crosses the separatrix (PLTH, which already contains the ohmic power).  SINTEZ
+        # radiates some of the heating on its way out and adds its own ohmic power, so a first pass measures both and a
+        # second pass corrects the auxiliary power: the conducted power then equals the record's PLTH.
         target = float(record.PLTH) / 1e6
         sim, d = _burn(record, transport_model, t_end, target)
         out["P_aux_first_pass"] = target
-        sim, d = _burn(record, transport_model, t_end, target + d["Prad"])
+        sim, d = _burn(record, transport_model, t_end, max(target + d["Prad"] - d["Pohm"], 0.1 * target))
         _summary(sim, d, out)
     except Exception as exc:                                    # one bad record must not kill the batch
         out["error"] = f"{type(exc).__name__}: {exc}"

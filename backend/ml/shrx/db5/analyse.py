@@ -13,6 +13,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from quality import valid  # noqa: E402
+
 csv, out_path = sys.argv[1], sys.argv[2]
 
 
@@ -37,12 +40,19 @@ PLTH = dict(zip(df.key, df.PLTH))
 KEYS = list(df.key)
 
 
-def table(runs, field):
+REC = {k: row for k, row in zip(df.key, df.to_dict("records"))}
+
+
+def table(runs, field, only_valid=False):
     rows = {}
     for r in runs:
-        if r.get("ok"):
-            rows[(r["TOK"], r["SHOT"], round(r["TIME"], 4))] = r[field]
+        k = (r["TOK"], r["SHOT"], round(r["TIME"], 4))
+        if r.get("ok") and (not only_valid or valid(r, REC[k])):
+            rows[k] = r[field]
     return rows
+
+
+VALID_KEYS = {}
 
 
 def stats(ratio):
@@ -65,12 +75,17 @@ preds = {}
 for name, runs in sintez.items():
     t = table(runs, "Wth_MJ")
     preds[f"SINTEZ+{name}"] = {k: v * 1e6 for k, v in t.items()}
+    VALID_KEYS[f"SINTEZ+{name}"] = set(table(runs, "Wth_MJ", only_valid=True))
 for name, runs in torax.items():
     t = table(runs, "Wth_MJ")
     preds[f"TORAX({name})"] = {k: v * 1e6 for k, v in t.items()}
 for name, p in preds.items():
     ratio = [p[k] / WTH[k] for k in KEYS if k in p]
     res["stats"][name] = stats(ratio)
+    if name in VALID_KEYS:
+        res["stats"][name + " [valid runs only]"] = stats([p[k] / WTH[k] for k in KEYS if k in VALID_KEYS[name]])
+        # the yardstick on the same records
+        res["stats"]["IPB98y2_fit [same records]"] = stats([ipb[i] for i, k in enumerate(KEYS) if k in VALID_KEYS[name]])
 
 # per record table and the agreement between codes
 for k in KEYS:
