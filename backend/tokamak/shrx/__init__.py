@@ -73,6 +73,7 @@ class Shrx:
 
 
 _MODEL: Optional[Shrx] = None
+_ENSEMBLE = None
 
 
 def available() -> bool:
@@ -89,18 +90,55 @@ def load() -> Shrx:
     return _MODEL
 
 
-def evaluate(rho, Te, Ti, ne20, q, machine, zeff: float, normni: float = 0.9) -> dict:
+def ensemble_available() -> bool:
+    from .ensemble import ENSEMBLE_PATH
+    return ENSEMBLE_PATH.is_file()
+
+
+def load_ensemble():
+    """The shared ensemble (loaded once)."""
+    global _ENSEMBLE
+    if _ENSEMBLE is None:
+        from .ensemble import ShrxEnsemble
+        if not ensemble_available():
+            raise FileNotFoundError("SHRX ensemble weights not found (backend/tokamak/shrx/ensemble.npz)")
+        _ENSEMBLE = ShrxEnsemble()
+    return _ENSEMBLE
+
+
+def evaluate(rho, Te, Ti, ne20, q, machine, zeff: float, normni: float = 0.9, uncertainty: bool = False) -> dict:
     """chi_e, chi_i [m^2/s] on the given radial grid for one machine.
 
     ``machine`` needs ``R0``, ``a``, ``B0``, ``kappa_x`` and ``a_mass`` (a :class:`tokamak.machines.Machine`).
     Also returns the gyro-Bohm particle flux and the fraction of radial points outside the
     training box (their inputs were clipped).
+
+    With ``uncertainty=True`` the ensemble is used: ``chi_e``/``chi_i`` come from the ensemble-mean flux, and
+    ``chi_e_spread``/``chi_i_spread`` are the relative standard deviation of chi across members (0 where the turbulence is
+    off in every member), ``uncertain`` flags points whose spread exceeds the calibrated threshold.
     """
     X, aux = bridge.features(rho, Te, Ti, ne20, q, machine.R0, machine.a, machine.B0, zeff, normni,
                              kappa_edge=machine.kappa_x)
-    net = load()
-    flux = net.predict(X)
+    if not uncertainty:
+        net = load()
+        flux = net.predict(X)
+        chi_i, chi_e = bridge.to_si(flux[:, 0], flux[:, 1], aux, a_mass=machine.a_mass)
+        ood = net.out_of_range(X)
+        return {"chi_e": chi_e, "chi_i": chi_i, "gamma_e_gb": flux[:, 2],
+                "ood_fraction": float(ood.mean()), "ood": ood, "features": X}
+    net = load_ensemble()
+    members = net.predict_members(X)                                  # (K, N, 3)
+    flux = members.mean(axis=0)
     chi_i, chi_e = bridge.to_si(flux[:, 0], flux[:, 1], aux, a_mass=machine.a_mass)
+    ci = np.stack([bridge.to_si(m[:, 0], m[:, 1], aux, a_mass=machine.a_mass) for m in members])   # (K, 2, N)
+    spread = {}
+    for j, name in ((0, "chi_i"), (1, "chi_e")):
+        c = ci[:, j, :]
+        spread[name] = c.std(axis=0) / np.maximum(c.mean(axis=0), 1e-9)
+    # points where every member sits on the chi floor are "off", not "uncertain"
+    live = (ci > 0.05 * 1.0001).any(axis=(0, 1))
+    uncertain = live & ((spread["chi_e"] > net.unc_threshold) | (spread["chi_i"] > net.unc_threshold))
     ood = net.out_of_range(X)
-    return {"chi_e": chi_e, "chi_i": chi_i, "gamma_e_gb": flux[:, 2],
-            "ood_fraction": float(ood.mean()), "ood": ood, "features": X}
+    return {"chi_e": chi_e, "chi_i": chi_i, "gamma_e_gb": flux[:, 2], "ood_fraction": float(ood.mean()), "ood": ood,
+            "features": X, "chi_e_spread": spread["chi_e"], "chi_i_spread": spread["chi_i"], "uncertain": uncertain,
+            "uncertain_fraction": float(uncertain.mean())}

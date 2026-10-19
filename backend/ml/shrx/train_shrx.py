@@ -37,6 +37,8 @@ ap.add_argument("--name", default=None)
 ap.add_argument("--w-real", type=float, default=1.0)
 ap.add_argument("--w-aug", type=float, default=0.7)
 ap.add_argument("--w-box", type=float, default=0.4)
+ap.add_argument("--w-thresh", type=float, default=1.0, help="weight of the threshold-targeted samples (tag 3)")
+ap.add_argument("--bag", type=float, default=1.0, help="fraction of the training rows each member sees (bagging)")
 ap.add_argument("--scale-mult", type=float, default=0.25,
                 help="asinh scale = scale-mult x typical flux; smaller = loss closer to relative error")
 ap.add_argument("--w-source", default="", help="e.g. qlknnref=2.5,shrxr1=1.5: extra weight for states from those runs")
@@ -51,6 +53,8 @@ hold = np.isin(mach, args.holdout.split(","))
 rng = np.random.default_rng(args.seed)
 val = (~hold) & (rng.random(len(X)) < 0.04)
 train = (~hold) & (~val)
+if args.bag < 1.0:
+    train &= rng.random(len(X)) < args.bag
 test = hold & (tag <= 1)
 print(f"samples {len(X)}: train {train.sum()}  val {val.sum()}  test (held-out machines {args.holdout}) {test.sum()}")
 
@@ -58,7 +62,7 @@ mu, sd = X[train].mean(0), X[train].std(0) + 1e-6
 # per-output asinh scale: typical size of a non-negligible flux
 scale = args.scale_mult * np.array([np.median(np.abs(Y[train, k])[np.abs(Y[train, k]) > 1e-3]) for k in range(3)], np.float32)
 print("asinh scales (qi, qe, pfe):", scale)
-w = np.where(tag == 0, args.w_real, np.where(tag == 1, args.w_aug, args.w_box)).astype(np.float32)
+w = np.where(tag == 0, args.w_real, np.where(tag == 1, args.w_aug, np.where(tag == 3, args.w_thresh, args.w_box))).astype(np.float32)
 if "source" in d.files:
     for item in filter(None, args.w_source.split(",")):
         k, v = item.split("=")

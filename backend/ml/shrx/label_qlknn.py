@@ -19,35 +19,12 @@ import numpy as np
 import torax  # noqa: F401  (before sys.path edits: backend/imas shadows the real imas)
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
-import jax  # noqa: E402
-import jax.numpy as jnp  # noqa: E402
 from tokamak.shrx import bridge  # noqa: E402
-from torax._src.transport_model import qlknn_transport_model as qt  # noqa: E402
+
+from ml.shrx.qlknn_common import J, LO, HI, NAMES, MODEL, clip_box, label  # noqa: E402
 
 rng = np.random.default_rng(2026)
-model = qt.get_model("", "qlknn_7_11_v1")
-names = list(model.inputs_and_ranges)
-assert tuple(names) == bridge.FEATURES, names
-LO = np.array([max(model.inputs_and_ranges[k].get("min", -1e9), -1e9) for k in names])
-HI = np.array([model.inputs_and_ranges[k].get("max", 1e9) for k in names])
-LO[names.index("Ati")] = LO[names.index("Ate")] = 0.0     # QLKNN's 1e-14 floor, as zero
-
-
-def clip_box(X):
-    return np.clip(X, LO, HI)
-
-
-def label(X, batch=200_000):
-    out = []
-    f = jax.jit(model.predict)
-    for i in range(0, len(X), batch):
-        o = f(jnp.asarray(X[i:i + batch], dtype=jnp.float64))
-        qi = np.asarray(o["qi_itg"]).ravel() + np.asarray(o["qi_tem"]).ravel()
-        qe = (np.asarray(o["qe_itg"]).ravel() + np.asarray(o["qe_tem"]).ravel()
-              + bridge.ETG_FACTOR * np.asarray(o["qe_etg"]).ravel())
-        pf = np.asarray(o["pfe_itg"]).ravel() + np.asarray(o["pfe_tem"]).ravel()
-        out.append(np.stack([qi, qe, pf], axis=1))
-    return np.concatenate(out).astype(np.float32)
+names = NAMES
 
 
 def perturb(X, k):
