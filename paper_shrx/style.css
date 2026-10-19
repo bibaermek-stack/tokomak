@@ -1,4 +1,4 @@
-/* Black on white only.  Print-first: A4, 20 mm margins, Times-metric serif. */
+/* White page, black text and rules; only the figures and screenshots carry colour.  Print-first: A4, 20 mm margins, Times-metric serif. */
 @page { size: A4; margin: 20mm 18mm 22mm 18mm;
   @bottom-center { content: counter(page); font: 10pt "Liberation Serif", "Times New Roman", serif; color: #000; } }
 :root { color-scheme: light; }

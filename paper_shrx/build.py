@@ -3,7 +3,7 @@
 
     python build.py [--no-pdf]
 
-Source syntax (Markdown + LaTeX, rendered with KaTeX at build time, black on white only):
+Source syntax (Markdown + LaTeX, rendered with KaTeX at build time; text black on white, figures and screenshots in colour):
 
   {{= expr }}                    Python expression; D is the dict of data/*.json, helpers c(x, n), pct(x, n), sg(x, n)
   $...$   $$...$$ {#eq:name}     inline / numbered display math (KaTeX)

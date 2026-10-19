@@ -1,4 +1,4 @@
-"""Screenshots of the SINTEZ web interface (grayscale, light background) for the article.   Playwright (Python) + system Chromium.
+"""Screenshots of the SINTEZ web interface (original colours) for the article.   Playwright (Python) + system Chromium.
 
     python tools/screenshots.py            # needs `python -m http.server 8765` in the repository root and uvicorn on 8770 for the API page
 """
@@ -6,7 +6,6 @@ import sys
 import time
 from pathlib import Path
 
-from PIL import Image, ImageOps
 from playwright.sync_api import sync_playwright
 
 HERE = Path(__file__).resolve().parents[1]
@@ -14,14 +13,6 @@ OUT = HERE / "screenshots"
 OUT.mkdir(exist_ok=True)
 CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
 BASE = "http://127.0.0.1:8765/index.html"
-
-
-def to_bw(path, invert):
-    """Grayscale; dark interfaces are inverted so that the page stays black on white."""
-    im = Image.open(path).convert("L")
-    if invert:
-        im = ImageOps.invert(im)
-    im.save(path, optimize=True)
 
 
 with sync_playwright() as p:
@@ -53,7 +44,4 @@ with sync_playwright() as p:
         print("heat map:", e)
     print("stage:", pg.evaluate("document.body.dataset.stage"))
     b.close()
-for n in ("ui_landing", "ui_reactor", "ui_heatmap"):
-    if (OUT / f"{n}.png").is_file():
-        to_bw(OUT / f"{n}.png", invert=True)
 print("done")

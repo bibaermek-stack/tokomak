@@ -1,4 +1,4 @@
-"""Screenshots of the SINTEZ HTTP API (FastAPI's Swagger UI served from local files), grayscale.   needs uvicorn on 8770."""
+"""Screenshots of the SINTEZ HTTP API (FastAPI's Swagger UI served from local files), original colours.   needs uvicorn on 8770."""
 import json
 from pathlib import Path
 
@@ -67,25 +67,9 @@ with sync_playwright() as p:
     pg.route("**/*", lambda r: route(r) if "127.0.0.1" not in r.request.url else r.continue_())
     pg.goto(f"{BASE}/docs", wait_until="load")
     pg.wait_for_selector(".opblock", timeout=60000)
-    pg.add_style_tag(content="""
-      *, *::before, *::after { color: #000 !important; text-shadow: none !important; }
-      .swagger-ui .opblock, .swagger-ui .opblock .opblock-summary, .swagger-ui .opblock-body, .swagger-ui .opblock-section-header,
-      .swagger-ui .responses-inner, .swagger-ui textarea, .swagger-ui .highlight-code, .swagger-ui .microlight, .swagger-ui pre,
-      .swagger-ui .opblock-description-wrapper, .swagger-ui .opblock-body pre.microlight, .swagger-ui .responses-table {
-        background: #fff !important; box-shadow: none !important; }
-      .swagger-ui .opblock { border: 1px solid #000 !important; }
-      .swagger-ui .opblock .opblock-summary-method { background: #fff !important; border: 1px solid #000 !important; }
-      .swagger-ui .opblock-body pre.microlight, .swagger-ui .highlight-code > pre { border: 0.8px solid #000 !important; }
-      .swagger-ui .btn { background: #fff !important; border-color: #000 !important; }
-      .swagger-ui .btn.execute { background: #fff !important; border: 1.5px solid #000 !important; }
-      svg, svg path { fill: #000 !important; }
-    """)
     operation(pg, "post", "/ml/shrx", {"Ati": 7.0, "Ate": 7.0, "Ane": 2.0, "q": 1.5, "smag": 1.0, "x": 0.5, "Ti_Te": 1.0,
                                        "LogNuStar": -1.5, "normni": 0.9, "Ti_keV": 8.0, "B0": 5.3, "R0": 6.2, "a": 2.0, "a_mass": 2.5},
               name="api_shrx")
     operation(pg, "get", "/models", name="api_models")
     b.close()
-for n in ("api_shrx", "api_models"):
-    im = Image.open(OUT / f"{n}.png").convert("L")
-    im.save(OUT / f"{n}.png", optimize=True)
 print("done")
