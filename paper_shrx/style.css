@@ -1,0 +1,59 @@
+/* White page, black text and rules; only the figures and screenshots carry colour.  Print-first: A4, 20 mm margins, Times-metric serif. */
+@page { size: A4; margin: 20mm 18mm 22mm 18mm;
+  @bottom-center { content: counter(page); font: 10pt "Liberation Serif", "Times New Roman", serif; color: #000; } }
+:root { color-scheme: light; }
+html { background: #fff; }
+body { margin: 0 auto; max-width: 178mm; padding: 10mm 0; color: #000; background: #fff;
+  font: 11pt/1.38 "Liberation Serif", "Times New Roman", Times, serif; text-align: justify; hyphens: none;
+  font-variant-numeric: lining-nums; orphans: 3; widows: 3; }
+@media print { body { padding: 0; max-width: none; } }
+p { margin: 0 0 2.2mm; text-indent: 6mm; }
+p.noindent, td p, th p, figcaption p, .abstract p, .refs p { text-indent: 0; }
+h1, h2, h3, h4 { font-family: inherit; color: #000; text-align: left; break-after: avoid; }
+h1 { font-size: 14pt; font-weight: 700; margin: 9mm 0 3mm; }
+h2 { font-size: 12pt; font-weight: 700; margin: 6mm 0 2mm; }
+h3 { font-size: 11pt; font-weight: 700; font-style: italic; margin: 4mm 0 1.5mm; }
+.title { text-align: center; font-size: 16pt; font-weight: 700; line-height: 1.25; margin: 0 0 3mm; }
+.subtitle { text-align: center; font-size: 12pt; font-style: italic; margin: 0 0 4mm; }
+.authors { text-align: center; margin: 0 0 1mm; }
+.affil { text-align: center; font-size: 10pt; margin: 0 0 4mm; }
+.udk { text-align: left; font-weight: 700; margin: 0 0 3mm; text-indent: 0; }
+.abstract { font-size: 10pt; line-height: 1.3; margin: 2mm 0 3mm; border-top: 0.4pt solid #000; padding-top: 2mm; }
+.abstract p { margin-bottom: 1.5mm; }
+.abstract h2 { font-size: 10.5pt; margin: 2mm 0 1mm; }
+.keywords { font-size: 10pt; margin-bottom: 3mm; }
+hr.sep { border: 0; border-top: 0.6pt solid #000; margin: 4mm 0; }
+/* figures */
+figure { margin: 3mm 0 4mm; padding: 0; text-align: center; break-inside: avoid; }
+figure img { max-width: 100%; height: auto; border: 0; }
+figure.shot img { border: 0.6pt solid #000; }
+figcaption { font-size: 10pt; line-height: 1.3; text-align: center; margin-top: 1.5mm; }
+figcaption p { margin: 0; }
+.fgrid { display: flex; gap: 4mm; justify-content: center; align-items: flex-end; }
+.fgrid > div { flex: 1 1 0; min-width: 0; }
+/* tables: three rules */
+.tablewrap { margin: 3mm 0 4mm; break-inside: avoid; }
+.tcap { font-size: 10pt; text-align: left; margin-bottom: 1.2mm; }
+.tcap p { margin: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 9.5pt; line-height: 1.25; margin: 0 auto; }
+thead tr { border-top: 1pt solid #000; border-bottom: 0.6pt solid #000; }
+tbody tr:last-child { border-bottom: 1pt solid #000; }
+th, td { padding: 0.9mm 1.6mm; text-align: right; vertical-align: top; background: #fff; }
+th:first-child, td:first-child { text-align: left; }
+th { font-weight: 700; }
+td.l, th.l { text-align: left; }
+tr.sub td { border-top: 0.4pt solid #000; }
+/* equations */
+.katex { font-size: 1.04em; color: #000; }
+.katex-display { margin: 2.2mm 0 2.8mm; break-inside: avoid; }
+.katex-display > .katex { text-align: center; }
+/* references */
+.refs { font-size: 10pt; line-height: 1.3; }
+.refs ol { padding-left: 7mm; margin: 0; }
+.refs li { margin: 0 0 1.2mm; text-align: left; }
+a { color: #000; text-decoration: none; }
+code { font: 9pt "Liberation Mono", "Courier New", monospace; }
+pre { font: 8.5pt/1.25 "Liberation Mono", "Courier New", monospace; border: 0.5pt solid #000; padding: 2mm; white-space: pre-wrap; text-align: left; break-inside: avoid; }
+.note { font-size: 10pt; border-left: 1.5pt solid #000; padding-left: 3mm; margin: 2mm 0; }
+.pagebreak { break-after: page; }
+sup, sub { line-height: 0; }

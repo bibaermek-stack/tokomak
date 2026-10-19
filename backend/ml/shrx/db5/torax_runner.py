@@ -1,8 +1,10 @@
 """The same database records in TORAX (QLKNN).   TORAX environment.
 
-    python torax_runner.py <records.csv> <sintez_out.json> <out.json> [--limit N] [--shard i/n]
+    python torax_runner.py <records.csv> <sintez_out.json> <out.json> [--limit N] [--shard i/n] [--resume] [--budget N]
 
 ``--shard i/n`` runs every n-th record starting at i, so n processes can share one CPU box (JAX uses one core each here).
+``--budget N`` stops after N simulations and prints ``REMAINING k``: a JAX process keeps every compiled configuration and grows to
+several GB, so a driver loop restarts it (``--resume`` continues where the output file stops).
 
 Equal footing with the SINTEZ runs: same machine parameters, same density profile (SINTEZ's, prescribed), same pedestal
 top (SINTEZ's EPED-like prediction -- TORAX has no predictive pedestal), same electron/ion split of the heating, same Z_eff,
@@ -79,14 +81,25 @@ def config(r, s):
 
 
 results = []
+done = set()
+if "--resume" in sys.argv and Path(out_path).is_file():           # a restarted job continues where the file stops
+    results = [r for r in json.load(open(out_path)) if r.get("ok")]
+    done = {(r["TOK"], r["SHOT"], round(r["TIME"], 4)) for r in results}
 rows = list(df.itertuples(index=False))
 if "--shard" in sys.argv:
     i, n = (int(v) for v in sys.argv[sys.argv.index("--shard") + 1].split("/"))
     rows = rows[i::n]
 if limit:
     rows = rows[:limit]
+budget = int(sys.argv[sys.argv.index("--budget") + 1]) if "--budget" in sys.argv else None
+ran = 0
 for r in rows:
     key = (r.TOK, int(r.SHOT), round(float(r.TIME), 4))
+    if key in done:
+        continue
+    if budget is not None and ran >= budget:
+        break
+    ran += 1
     out = {"TOK": r.TOK, "SHOT": int(r.SHOT), "TIME": float(r.TIME), "ok": False}
     s = sintez.get(key)
     if not s or not s.get("ok"):
@@ -112,3 +125,6 @@ for r in rows:
           f"W {out.get('Wth_MJ', float('nan')):.2f} MJ", flush=True)
     Path(out_path).write_text(json.dumps(results))
 Path(out_path).write_text(json.dumps(results))
+remaining = sum(1 for r in rows if (r.TOK, int(r.SHOT), round(float(r.TIME), 4)) not in {
+    (x["TOK"], x["SHOT"], round(x["TIME"], 4)) for x in results if x.get("ok")})
+print(f"REMAINING {remaining}", flush=True)
