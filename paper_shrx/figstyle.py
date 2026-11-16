@@ -1,5 +1,6 @@
 """Figure style: white background, black text and axes, colour only for the data.  The colours are the Okabe-Ito set (distinguishable by
 people with colour-vision deficiency); series differ in line style and marker as well, so the figures also read in a grayscale print."""
+import os
 from pathlib import Path
 
 import matplotlib
@@ -10,8 +11,20 @@ from matplotlib import font_manager  # noqa: E402
 from matplotlib.ticker import FuncFormatter  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-OUT = HERE / "figures"
+LANG = os.environ.get("FIG_LANG", "kk")              # "kk" (default): Kazakh labels -> figures/;  "en": English labels -> figures_en/
+OUT = HERE / ("figures" if LANG == "kk" else f"figures_{LANG}")
 OUT.mkdir(exist_ok=True)
+if LANG == "en":
+    from matplotlib import text as _mtext
+
+    from figtr_en import PANEL, leftover, tr
+
+    _set_text = _mtext.Text.set_text
+
+    def _set_text_en(self, s):                       # every label, tick label, legend entry and annotation goes through here
+        _set_text(self, tr(s) if isinstance(s, str) else s)
+
+    _mtext.Text.set_text = _set_text_en
 
 for f in Path("/usr/share/fonts/truetype/liberation").glob("LiberationSerif-*.ttf"):
     font_manager.fontManager.addfont(str(f))
@@ -35,7 +48,7 @@ CYC = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#6A3D9
 LS = {"-": "-", "--": (0, (5, 2.2)), ":": (0, (1, 1.6)), "-.": (0, (5, 1.6, 1, 1.6)), "..": (0, (1, 3.2)), "---": (0, (9, 3))}
 MK = ["o", "s", "^", "v", "D", "x", "+", "*", "P", "X", "h", "<", ">", "p", "d"]
 HATCH = ["", "////", "\\\\\\\\", "xxxx", "....", "++++", "----", "oooo"]
-COMMA = FuncFormatter(lambda v, _: f"{v:g}".replace(".", ",").replace("-", "−"))
+COMMA = FuncFormatter(lambda v, _: (f"{v:g}" if LANG == "en" else f"{v:g}".replace(".", ",")).replace("-", "−"))   # decimal comma in Kazakh, point in English
 
 
 def comma(ax, x=True, y=True):
@@ -46,10 +59,17 @@ def comma(ax, x=True, y=True):
 
 
 def panel(ax, label, dx=0.0, dy=1.02):
+    if LANG == "en":
+        label = label.translate(PANEL)                # "а", "б", "в" -> "a", "b", "c"
     ax.text(dx, dy, f"({label})", transform=ax.transAxes, ha="left", va="bottom", fontsize=9, fontweight="bold")
 
 
 def save(fig, name, vector=True):
+    if LANG == "en":                                 # refuse to save a figure that still has a Kazakh letter in it
+        fig.canvas.draw()
+        left = sorted({leftover(t.get_text()) for t in fig.findobj(matplotlib.text.Text)} - {""})
+        if left:
+            raise SystemExit(f"{name}: untranslated Cyrillic text {left}")
     path = OUT / f"{name}.{'svg' if vector else 'png'}"
     fig.savefig(path, bbox_inches="tight", pad_inches=0.04)
     if vector:                                       # the Word version cannot embed SVG: a 300 dpi copy for it
