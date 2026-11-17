@@ -14,7 +14,8 @@ Standard library only.  Edits word/document.xml, word/_rels/document.xml.rels an
   4. references in the sample's style (article titles, bold volume, italic book titles, DOIs as hyperlinks).
   5. (optional, --figures-kk/--figures-en) figures whose labels are in Kazakh are replaced by the English-labelled ones
      built with FIG_LANG=en make_figures.py; the match is by file content, width kept, height follows the new aspect ratio.
-  6. keywords separated by a middle dot, ORCID as a hyperlink, alt text on every figure, empty spacer paragraphs and the
+  6. all text colours of the styles (headings, hyperlinks, code) set to black.
+  7. keywords separated by a middle dot, ORCID as a hyperlink, alt text on every figure, empty spacer paragraphs and the
      manual page break removed, author name in the document properties.
 """
 import argparse
@@ -302,6 +303,10 @@ def swap_figures(d, rels, src, kk_dir, en_dir):
     return d, media, done
 
 
+def black_text(styles):
+    return re.sub(r"<w:color [^>]*/>", '<w:color w:val="000000"/>', styles)
+
+
 def write(src, dst, replace, extra):
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
@@ -325,6 +330,7 @@ def main():
         d = z.read("word/document.xml").decode("utf-8")
         rels = z.read("word/_rels/document.xml.rels").decode("utf-8")
         core = z.read("docProps/core.xml").decode("utf-8")
+        styles = black_text(z.read("word/styles.xml").decode("utf-8"))
 
     d, n_eq = convert_equation_tables(d, a.eqnum)
     d = clean_math_text(d)
@@ -344,9 +350,10 @@ def main():
     if "<dc:creator>" not in core:
         core = core.replace("<dc:language>", "<dc:creator>%s</dc:creator><dc:language>" % AUTHOR)
 
-    for name, xml in (("document.xml", d), ("rels", rels), ("core", core)):
+    for name, xml in (("document.xml", d), ("rels", rels), ("core", core), ("styles", styles)):
         ET.fromstring(xml.encode("utf-8"))  # well-formedness check
-    write(a.src, a.dst, {"word/document.xml": d, "word/_rels/document.xml.rels": rels, "docProps/core.xml": core, **media}, None)
+    write(a.src, a.dst, {"word/document.xml": d, "word/_rels/document.xml.rels": rels, "docProps/core.xml": core,
+                      "word/styles.xml": styles, **media}, None)
     print("equations converted: %d | hyperlinks: %d | figures swapped: %d | mode: %s -> %s"
           % (n_eq, len(links), len(swapped), a.eqnum, a.dst))
 
