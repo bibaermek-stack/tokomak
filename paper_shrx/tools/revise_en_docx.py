@@ -15,7 +15,8 @@ Standard library only.  Edits word/document.xml, word/_rels/document.xml.rels an
   5. (optional, --figures-kk/--figures-en) figures whose labels are in Kazakh are replaced by the English-labelled ones
      built with FIG_LANG=en make_figures.py; the match is by file content, width kept, height follows the new aspect ratio.
   6. all text colours of the styles (headings, hyperlinks, code) set to black.
-  7. keywords separated by a middle dot, ORCID as a hyperlink, alt text on every figure, empty spacer paragraphs and the
+  7. --repo-url: the repository link replaces the highlighted placeholder in Data Availability.
+  8. keywords separated by a middle dot, ORCID as a hyperlink, alt text on every figure, empty spacer paragraphs and the
      manual page break removed, author name in the document properties.
 """
 import argparse
@@ -253,6 +254,20 @@ def keywords_and_orcid(d, links):
     return d
 
 
+PLACEHOLDER = ('<w:r><w:rPr><w:rStyle w:val="Placeholder"/><w:highlight w:val="yellow"/></w:rPr>'
+               '<w:t xml:space="preserve">repository URL or DOI to be added</w:t></w:r>')
+
+
+def repository_link(d, links, url):
+    """The yellow "repository URL or DOI to be added" note in Data Availability becomes the repository link."""
+    if PLACEHOLDER not in d:
+        raise SystemExit("repository placeholder not found")
+    rid = "rIdLink%d" % (len(links) + 1)
+    links.append((rid, url))
+    return d.replace(PLACEHOLDER, '<w:hyperlink r:id="%s"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr>'
+                                  '<w:t xml:space="preserve">%s</w:t></w:r></w:hyperlink>' % (rid, esc(url)))
+
+
 def alt_texts(d):
     captions = []
     for m in re.finditer(r"<w:p>(?:(?!</w:p>).)*?</w:p>", d, re.S):
@@ -322,6 +337,7 @@ def main():
     ap.add_argument("src")
     ap.add_argument("dst")
     ap.add_argument("--eqnum", choices=("native", "tabs"), default="native")
+    ap.add_argument("--repo-url", help="repository link for the Data Availability statement")
     ap.add_argument("--figures-kk", help="folder with the Kazakh-labelled figures (figures/)")
     ap.add_argument("--figures-en", help="folder with the English-labelled twins (figures_en/)")
     a = ap.parse_args()
@@ -338,6 +354,8 @@ def main():
     refs_xml, links = references(None)
     d = reorder_back_matter(d, refs_xml)
     d = keywords_and_orcid(d, links)
+    if a.repo_url:
+        d = repository_link(d, links, a.repo_url)
     d = alt_texts(d)
     media, swapped = {}, []
     if a.figures_kk and a.figures_en:
