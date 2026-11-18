@@ -16,7 +16,8 @@ Standard library only.  Edits word/document.xml, word/_rels/document.xml.rels an
      built with FIG_LANG=en make_figures.py; the match is by file content, width kept, height follows the new aspect ratio.
   6. all text colours of the styles (headings, hyperlinks, code) set to black.
   7. --repo-url: the repository link replaces the highlighted placeholder in Data Availability.
-  8. keywords separated by a middle dot, ORCID as a hyperlink, alt text on every figure, empty spacer paragraphs and the
+  8. --coauthor "Name|Affiliation|e-mail|ORCID": second author in the title block, Author Contributions, Competing Interests.
+  9. keywords separated by a middle dot, ORCID as a hyperlink, alt text on every figure, empty spacer paragraphs and the
      manual page break removed, author name in the document properties.
 """
 import argparse
@@ -254,6 +255,54 @@ def keywords_and_orcid(d, links):
     return d
 
 
+def add_coauthor(d, links, spec):
+    """spec = "Name|Affiliation|e-mail|ORCID url".  Title block, Author Contributions, Competing Interests."""
+    name, affiliation, email, orcid = [x.strip() for x in spec.split("|")]
+    sup = lambda n: '<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t xml:space="preserve">%s</w:t></w:r>' % n
+    run = lambda t: '<w:r><w:t xml:space="preserve">%s</w:t></w:r>' % esc(t)
+
+    old = ('<w:r><w:t xml:space="preserve">Beibarys Ermekuly</w:t></w:r>' + sup(1) + "</w:p>")
+    if d.count(old) != 1:
+        raise SystemExit("author paragraph not recognised")
+    d = d.replace(old, old[:-len("</w:p>")] + run(" \u00b7 " + name) + sup(2) + "</w:p>")
+
+    aff1 = re.search(r'<w:p><w:pPr><w:pStyle w:val="Affiliation"/></w:pPr>' + re.escape(sup(1)) + r'.*?</w:p>', d, re.S)
+    if not aff1:
+        raise SystemExit("affiliation paragraph not found")
+    aff2 = '<w:p><w:pPr><w:pStyle w:val="Affiliation"/></w:pPr>%s%s%s</w:p>' % (sup(2), run(" "), run(affiliation))
+    d = d[:aff1.end()] + aff2 + d[aff1.end():]
+
+    rid = "rIdLink%d" % (len(links) + 1)
+    links.append((rid, orcid))
+
+    def orcid_par(m):
+        return ('<w:p><w:pPr><w:pStyle w:val="Affiliation"/></w:pPr>' + run("ORCID: Beibarys Ermekuly, ") + m.group(1) +
+                run("; " + name + ", ") + '<w:hyperlink r:id="%s"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr>'
+                '<w:t xml:space="preserve">%s</w:t></w:r></w:hyperlink></w:p>' % (rid, esc(orcid)))
+    d, n = re.subn(r'<w:p><w:pPr><w:pStyle w:val="Affiliation"/></w:pPr><w:r><w:t xml:space="preserve">ORCID: </w:t></w:r>'
+                   r'(<w:hyperlink r:id="rIdLink\d+">.*?</w:hyperlink>)</w:p>', orcid_par, d, count=1, flags=re.S)
+    if n != 1:
+        raise SystemExit("ORCID paragraph not found")
+
+    corr = '<w:r><w:t xml:space="preserve">Corresponding author: Beibarys Ermekuly, biba.ermek@gmail.com</w:t></w:r></w:p>'
+    if d.count(corr) != 1:
+        raise SystemExit("corresponding-author paragraph not found")
+    d = d.replace(corr, corr + '<w:p><w:pPr><w:pStyle w:val="Affiliation"/></w:pPr>' + run("Co-author: %s, %s" % (name, email)) + "</w:p>")
+
+    contrib_old = ("The sole author conceived the study, developed the software, performed the simulations and analysis, "
+                   "and wrote the manuscript.")
+    contrib_new = ("B.E. conceived the study, developed the software, performed the simulations and the analysis, and wrote "
+                   "the manuscript. A.U. contributed to the data analysis and the validation of the simulation model and "
+                   "reviewed the manuscript. Both authors read and approved the final manuscript.")
+    interests_old = "The author has no relevant financial or non-financial interests to disclose."
+    interests_new = "The authors have no relevant financial or non-financial interests to disclose."
+    for old_t, new_t in ((contrib_old, contrib_new), (interests_old, interests_new)):
+        if d.count(old_t) != 1:
+            raise SystemExit("statement not found: " + old_t[:40])
+        d = d.replace(old_t, esc(new_t))
+    return d
+
+
 PLACEHOLDER = ('<w:r><w:rPr><w:rStyle w:val="Placeholder"/><w:highlight w:val="yellow"/></w:rPr>'
                '<w:t xml:space="preserve">repository URL or DOI to be added</w:t></w:r>')
 
@@ -337,6 +386,7 @@ def main():
     ap.add_argument("src")
     ap.add_argument("dst")
     ap.add_argument("--eqnum", choices=("native", "tabs"), default="native")
+    ap.add_argument("--coauthor", help='"Name|Affiliation|e-mail|ORCID url": add a second author')
     ap.add_argument("--repo-url", help="repository link for the Data Availability statement")
     ap.add_argument("--figures-kk", help="folder with the Kazakh-labelled figures (figures/)")
     ap.add_argument("--figures-en", help="folder with the English-labelled twins (figures_en/)")
@@ -356,6 +406,8 @@ def main():
     d = keywords_and_orcid(d, links)
     if a.repo_url:
         d = repository_link(d, links, a.repo_url)
+    if a.coauthor:
+        d = add_coauthor(d, links, a.coauthor)
     d = alt_texts(d)
     media, swapped = {}, []
     if a.figures_kk and a.figures_en:

@@ -6,11 +6,11 @@ title: "Response to the Editor"
 
 **Manuscript:** "SHRX: a neural surrogate of turbulent transport in tokamak plasma and its comparison with TORAX against experimental data"
 
-**Author:** Beibarys Ermekuly — 17 November 2026
+**Author:** Beibarys Ermekuly — 18 November 2026
 
 Dear Dr Verdoolaege,
 
-Thank you for your message. The message did not list the individual typesetting issues, so I checked the manuscript file against the layout of the journal's published articles and corrected everything that could cause problems in typesetting. The scientific content, the results and all numbers are unchanged. The corrected file contains no tracked changes.
+Thank you for your message. The message did not list the individual typesetting issues, so I checked the manuscript file against the layout of the journal's published articles and corrected everything that could cause problems in typesetting. The scientific content, the results and all numbers are unchanged; the only content change is the added co-author (item 6). The corrected file contains no tracked changes.
 
 ## Editor's comment
 
@@ -23,6 +23,7 @@ Thank you for your message. The message did not list the individual typesetting 
 3. **Order of the end matter.** The sections now follow the article layout: Appendix, Author Contributions, Data Availability, Code Availability, Declarations (Funding, Competing Interests, Ethics Approval), References. Draft notes were removed from the Declarations.
 4. **References.** Article titles were added, volume numbers are in bold and DOIs are active links, as in the journal's reference style.
 5. **Minor formatting.** Keywords are separated by a middle dot, the ORCID is a link, empty paragraphs and a manual page break were removed.
+6. **Author list.** As requested in my e-mail of 27 October 2026, Almagul Ualikhan is added as a co-author. The title page, the Author Contributions statement and the Competing Interests statement were updated accordingly.
 
 If any typesetting issue remains, please tell me which one and I will correct it immediately.
 
